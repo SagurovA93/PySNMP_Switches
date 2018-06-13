@@ -97,7 +97,7 @@ def get_fdb_table(community,ip,port):
                               ContextData(),
                              #ObjectType(ObjectIdentity('1.3.6.1.2.1.17.7.1.4.3.1.1')), # Список VLAN
                              #ObjectType(ObjectIdentity('1.3.6.1.2.1.17.4.3.1')),  # Получаем таблицу соответствий = MAC адрес  = MAC адрес; для DEFAULT VLAN
-                              ObjectType(ObjectIdentity('1.3.6.1.2.1.17.7.1.2.1.1.2')),
+                              ObjectType(ObjectIdentity('1.3.6.1.2.1.17.7.1.2.1.1.2')), # Здесь список vlan лежит
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.17.7.1.2.2.1.2')), # Таблица FDB по (ВСЕМ - ?) vlan 1.3.6.1.2.1.17.7.1.2 - old
                               #
                               lexicographicMode=False):
@@ -110,50 +110,48 @@ def get_fdb_table(community,ip,port):
                                 errorIndex and varBinds[int(errorIndex) - 1][0] or '?'))
             break
         else:
-            print([' = '.join([x.prettyPrint() for x in varBinds]).split(' = ')[0], ' = '.join([x.prettyPrint() for x in varBinds]).split(' = ')[1]])
             raw_answers.append([' = '.join([x.prettyPrint() for x in varBinds]).split(' = ')[0], ' = '.join([x.prettyPrint() for x in varBinds]).split(' = ')[1]])
 
+    vlan_reg_expression = 'SNMPv2-SMI::mib-2\.17\.7\.1\.2\.1\.1\.2\.'
     for string in raw_answers:
-        vlan_reg_expression = re.compile('SNMPv2-SMI::mib-2.17.7.1.2')
-        vlan = vlan_reg_expression.search(string[0])
-        if vlan:
-            vlan_id = string[0].split('SNMPv2-SMI::mib-2.17.7.1.2.')[1]
+        if re.search(vlan_reg_expression, string[0]):
+            vlan_id = string[0].split('SNMPv2-SMI::mib-2.17.7.1.2.1.1.2.')[1]
             vlan_hosts_amount = string[1]
             vlans.append([vlan_id,vlan_hosts_amount])
             continue
 
-    #for VLAN_ID in vlans:
-    #    VLAN_ID = VLAN_ID[0]
-    #    mac_reg_expression = re.escape(VLAN_ID) + '\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
-    #    for string in raw_answers:
-    #        if re.search(mac_reg_expression, string[0]):
-    #            interface = string[1]
-    #            mac = re.findall('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', string[0])[0]
-    #            mac_original = mac
-    #            mac = mac_to_hex(mac)
-    #            mac_table.append([mac, interface, VLAN_ID])
-    #            fdb_table[interface] = []
+    for VLAN_ID in vlans:
+        VLAN_ID = VLAN_ID[0]
+        mac_reg_expression = re.escape(VLAN_ID) + '\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+        for string in raw_answers:
+            if re.search(mac_reg_expression, string[0]):
+                interface = string[1]
+                mac = re.findall('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', string[0])[0]
+                #mac_original = mac
+                mac = mac_to_hex(mac)
+                mac_table.append([mac, interface, VLAN_ID])
+                fdb_table[interface] = []
                 #print([mac, mac_original, string[1], VLAN_ID])
 
-    #for string in mac_table:
-    #    port_number = str(string[1])
-    #    fdb_table[port_number] = fdb_table.get(port_number) + [[str(string[0]),str(string[2])]]
+    for string in mac_table:
+        port_number = str(string[1])
+        fdb_table[port_number] = fdb_table.get(port_number) + [[str(string[0]),str(string[2])]]
     print(vlans)
     return fdb_table, vlans
 
 
 if __name__ == "__main__":
-    IP_ADDRESS='10.4.0.1'
+    IP_ADDRESS='10.4.0.201'
     COMMUNITY='public'
     PORT='161'
 
     FDB_TABLE,VLANS = get_fdb_table(COMMUNITY,IP_ADDRESS,PORT)
-    #for vlan in VLANS:
-    #    VLAN_ID = vlan[0]
-    #    VLAN_HOSTS_AMOUNT = vlan[1]
-    #    print('VLAN ID:', VLAN_ID, '\tКоличество хостов во vlan\'e - ', VLAN_HOSTS_AMOUNT)
+    for vlan in VLANS:
+        VLAN_ID = vlan[0]
+        VLAN_HOSTS_AMOUNT = vlan[1]
+        print('VLAN ID:', VLAN_ID, '\tКоличество хостов во vlan\'e - ', VLAN_HOSTS_AMOUNT)
 
-    #print('FDB таблица')
-    #for key in FDB_TABLE:
-    #    print('Порт: ',key,' ',FDB_TABLE[key])
+    print('FDB таблица')
+    for key in FDB_TABLE:
+        print('Порт: ',key,' ',FDB_TABLE[key])
 
