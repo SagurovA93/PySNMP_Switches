@@ -224,6 +224,36 @@ def get_fdb_table(community,ip,port):
     return fdb_table, vlans
 
 
+def get_switch_arp(community, ip, port):
+    raw_answers = []
+    arp_table = []
+    for (errorIndication,
+         errorStatus,
+         errorIndex,
+         varBinds) in nextCmd(SnmpEngine(),
+                              CommunityData(community, mpModel=1),
+                              UdpTransportTarget((ip, port), timeout=2),
+                              ContextData(),
+                              ObjectType(ObjectIdentity('IP-MIB', 'ipNetToMediaPhysAddress')),  # Номер порта IF-MIB::ifIndex.X
+                              lexicographicMode=False):
+        if errorIndication:
+            print(errorIndication)
+
+        elif errorStatus:
+            print('%s at %s' % (errorStatus.prettyPrint(),
+                                errorIndex and varBinds[int(errorIndex) - 1][0] or '?'))
+            break
+        else:
+            raw_answers.append([x.prettyPrint() for x in varBinds])
+
+    for answer in raw_answers:
+        string, mac_address = answer[0].split('=')
+        ip_address = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} ', answer[0].split('=')[0])[0].split(' ')[0]
+        arp_table.append((ip_address, str(mac_address).upper()))
+
+    return arp_table
+
+
 def get_switch_fdqn(IP_ADDRESS):
     switch_fdqn = socket.gethostbyaddr(IP_ADDRESS)[0]
     return(switch_fdqn)
@@ -355,10 +385,9 @@ def write_fdb_table(community, ip, port, db_ip_address = '10.4.5.54' , db_userna
             insert_data_db(db_ip_address, db_username, db_password, db_name, sql_insert_fdb_table)
 
 
-def write_switch_full_data(community, ip, port, requests_date='', db_ip_address = '10.4.5.54' , db_username = 'pysnmp',  db_password = '123456', db_name = 'switch_snmp'):
+def write_switch_full_data(community, ip, port, date_time, db_ip_address = '10.4.5.54' , db_username = 'pysnmp',  db_password = '123456', db_name = 'switch_snmp'):
     # Записываем временную метку в БД
-    if len(requests_date) == 0:
-        requests_date = strftime("%Y-%m-%d %H:%M:%S", localtime())  # Время запроса
+    requests_date = date_time
 
     sql_insert_datetime = """ INSERT requests(DATE) values('%(date_time)s')""" % {"date_time": requests_date}
     insert_data_db(db_ip_address, db_username, db_password, db_name, sql_insert_datetime)
@@ -377,10 +406,14 @@ def write_switch_full_data(community, ip, port, requests_date='', db_ip_address 
     ports = get_if_stat(community, ip, port)
     # Получаем fdb таблицу и информацию о vlan
     fdb_tables, vlans = get_fdb_table(community, ip, port)
+    # Получаем arp таблицу
+    arp_table = get_switch_arp(community, ip, port)
     # Получаем switch Description
     switch_description = snmp_get(community, ip, port, '1.3.6.1.2.1.1.1.0')  # 1.3.6.1.2.1.1.1 - system descr
     # Получаем switch uptime
     switch_uptime = snmp_get(community, ip, port, '1.3.6.1.2.1.1.3.0')  # 1.3.6.1.2.1.1.3 - uptime
+
+    switch_fdqn = get_switch_fdqn(ip)
 
     for port_number in sorted(ports):
         sql_get_ports_id_port = """ SELECT id_ports from switch_snmp.ports inner join switches using(id_switches) 
@@ -406,7 +439,7 @@ def write_switch_full_data(community, ip, port, requests_date='', db_ip_address 
         try:
             id_ports = get_data_db(db_ip_address, db_username, db_password, db_name, sql_get_ports_id_port)
         except TypeError as error_type:
-            print('ERROR: ', error_type, ' Port number: ', port_number, ' ', SWITCH_FDQN)
+            print('ERROR: ', error_type, ' Port number: ', port_number, ' ', switch_fdqn)
             continue
         for mac_string in fdb_tables[port_number]:
             mac_address = mac_string[0]
@@ -444,18 +477,34 @@ if __name__ == "__main__":
                        '10.4.0.204', '10.4.0.205', '10.4.0.206', '10.4.0.207', '10.4.0.208',
                        '10.4.0.209', '10.4.0.210', '10.4.0.211', '10.4.0.212', '10.4.0.213',
                        '10.4.0.214', '10.4.0.215', '10.4.0.217', '10.4.0.218']
+
+    SWITCH_ABK = ['10.4.0.1', '10.4.100.12', '10.4.100.13', '10.4.100.111',
+                  '10.4.100.121', '10.4.100.131', '10.4.100.171', '10.4.100.211',
+                  '10.4.100.212', '10.4.100.213', '10.4.100.214', '10.4.100.215',
+                  '10.4.100.216', '10.4.100.231', '10.4.100.251']
+
+    SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
+
     #TEST = ['10.4.0.213', '10.4.0.214', '10.4.0.215', '10.4.0.217', '10.4.0.218']
-    IP_ADDRESS_LIST = SWITCH_WORKSHOP
+    IP_ADDRESS_LIST = SWITCHES_IZ2
     if len(IP_ADDRESS_LIST) != 0:
-        time_start = strftime("%H:%M:%S", localtime())
+        g_time_start = strftime("%H:%M:%S", localtime())
         REQUEST_DATE = strftime("%Y-%m-%d %H:%M:%S", localtime())  # Время запроса
         for IP_ADDRESS in IP_ADDRESS_LIST:
-            SWITCH_FDQN = get_switch_fdqn(IP_ADDRESS)
-            write_switch_full_data(COMMUNITY, IP_ADDRESS, SNMP_PORT, REQUEST_DATE)
-
-        time_finish = strftime("%H:%M:%S", localtime())
-        print('\n' ,time_start, time_finish)
-
+            print(IP_ADDRESS)
+            arp_table = get_switch_arp(COMMUNITY, IP_ADDRESS, SNMP_PORT)
+            #print(arp_table)
     else:
         IP_ADDRESS=user_input()
         write_statistics_ports(COMMUNITY, IP_ADDRESS, SNMP_PORT)
+    """
+        for IP_ADDRESS in IP_ADDRESS_LIST:
+            time_start = strftime("%H:%M:%S", localtime())
+            SWITCH_FDQN = get_switch_fdqn(IP_ADDRESS)
+            write_switch_full_data(COMMUNITY, IP_ADDRESS, SNMP_PORT, REQUEST_DATE)
+            time_finish = strftime("%H:%M:%S", localtime())
+            print('\n', time_start, time_finish)
+
+        g_time_finish = strftime("%H:%M:%S", localtime())
+        print('\n' ,g_time_start, g_time_finish)
+    """
