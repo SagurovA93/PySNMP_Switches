@@ -1,5 +1,6 @@
 .idea/
 venv/
+test3.py
 test.*
 Async_Py_Snmp.py
 concurrent_queries.py
