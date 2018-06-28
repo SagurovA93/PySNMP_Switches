@@ -41,58 +41,41 @@ class MonitoringSwitches:
             id_switches = self.switches[ip_switch]['id_switches']
             for port in self.switches[ip_switch]['ports'].keys():
                 mac = self.switches[ip_switch]['ports'][port]
-                func_handler(id_switches, port, mac)
+                func_handler(id_switches=id_switches, port=port, mac=mac)
 
-    
+    def get_final_mac(self):
+        def _handler(**kwargs):
+            mac = kwargs['mac']
+            if len(mac) == 1:
+                final_mac.update(mac)
+        
+        final_mac = set()
+        self._foreach_switches(_handler)
+        return final_mac
 
-    # def test(self):
-    #     def _handler_test(id_switches, port, mac):
-    #         print("id_switches %d, port %d, mac %s"%(id_switches, port, mac))
+    def clear_final_mac_of_ports(self):
+        def _handler(**kwargs):
+            mac = kwargs['mac']
+            if len(mac) > 1:
+                mac.difference_update(final_mac)
 
-    #     self._foreach_switches(_handler_test)
-
-    
-
-cred = {
-    'host'    : '10.4.5.54',
-    'user'    : 'pysnmp',
-    'passwd'  : '123456',
-    'db'      : 'switch_snmp',
-    'charset' : 'utf8',
-}
+        final_mac = self.get_final_mac()
+        self._foreach_switches(_handler)
+        
 
 
 if __name__ == "__main__":
+
+    cred = {
+        'host'    : '10.4.5.54',
+        'user'    : 'pysnmp',
+        'passwd'  : '123456',
+        'db'      : 'switch_snmp',
+        'charset' : 'utf8',
+    }
+
     switch = MonitoringSwitches(cred)
-    switch.test()
-    print(switch.switches)
-
-
-def clear_port_mac_swicthes(swithces):
-    final_mac = set()
-
-    for ip in switches.keys():
-        for port, mac in switches[ip].items():
-            if port == 'id':
-                continue
-            if len(mac) == 1:
-                final_mac.update(mac)
-            #print('%(ip)s - порт %(port)d : кол-во mac %(count)d'%{'ip': ip, 'port': port, 'count': len(mac)})
-            
-
-    print("после")
-
-    for ip in switches.keys():
-        for port, mac in switches[ip].items():
-            if port == 'id':
-                continue
-            if len(mac) > 1:
-                mac.difference_update(final_mac)
-            #print('%(ip)s - порт %(port)d : кол-во mac %(count)d'%{'ip': ip, 'port': port, 'count': len(mac)})
-
-    #print(final_mac)
-    print("Итог %d" % (len(final_mac)))
-
+    print(len(switch.get_final_mac()))
 
 
 def tree_swicthes(switches):
@@ -111,17 +94,12 @@ def tree_swicthes(switches):
     nodes = []
     edges = []
 
-
-
     for ip in switches.keys():
         for port, mac in switches[ip].items():
             if port == 'id':
                 continue
             if len(mac) == 1:
                 nodes.append({'label': list(mac)[0]})
-
-
-    
 
     for ip in switches.keys():
         nodes.append({'id': switches[ip]['id'], 'label': ip})
@@ -142,14 +120,4 @@ def tree_swicthes(switches):
                 id_edges += 1
                 edges.append({'id': id_edges, 'from': id ,'to': tmp_edge['id'], 'title':port})
             
-        
-            
-            
-
     return (json.dumps(nodes), json.dumps(edges))
-
-#switches = get_switches_info(cred)
-#clear_port_mac_swicthes(clear_port_mac_swicthes(clear_port_mac_swicthes(switches)))
-#print(switches)
-
-#print(tree_swicthes(switches))
