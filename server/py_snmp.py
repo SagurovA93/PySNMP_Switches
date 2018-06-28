@@ -249,7 +249,7 @@ def get_switch_arp(community, ip, port):
     for answer in raw_answers:
         string, mac_address = answer[0].split('=')
         ip_address = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} ', answer[0].split('=')[0])[0].split(' ')[0]
-        arp_table.append((ip_address, str(mac_address).upper()))
+        arp_table.append([ip_address, str(mac_address).upper()])
 
     return arp_table
 
@@ -485,13 +485,14 @@ if __name__ == "__main__":
 
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
-    #TEST = ['10.4.0.213', '10.4.0.214', '10.4.0.215', '10.4.0.217', '10.4.0.218']
-    IP_ADDRESS_LIST = SWITCHES_IZ2
+    TEST = ['10.4.0.1']
+    IP_ADDRESS_LIST = TEST #SWITCHES_IZ2
     if len(IP_ADDRESS_LIST) != 0:
         g_time_start = strftime("%H:%M:%S", localtime())
         REQUEST_DATE = strftime("%Y-%m-%d %H:%M:%S", localtime())  # Время запроса
         for IP_ADDRESS in IP_ADDRESS_LIST:
             print(IP_ADDRESS)
+            fdb_table, vlans = get_fdb_table(COMMUNITY, IP_ADDRESS, SNMP_PORT)
             arp_table = get_switch_arp(COMMUNITY, IP_ADDRESS, SNMP_PORT)
             #print(arp_table)
     else:
