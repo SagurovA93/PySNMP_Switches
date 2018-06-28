@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+    <title>test</title>
+
+    <script type="text/javascript" src="dist/vis.min.js"></script>
+    <link href="dist/vis-network.min.css" rel="stylesheet" type="text/css"/>
+
+    <style type="text/css">
+        #mynetwork {
+            width: auto;
+            height: 1000px;
+            border: 1px solid lightgray;
+        }
+    </style>
+</head>
+<body>
+
+
+<div id="mynetwork"></div>
+
+<script type="text/javascript">
+
+    // // create an array with nodes
+    // var nodes = new vis.DataSet([
+    //     {id: 1, label: 'Node 1', title: 'I have a popup!', ip: 123},
+    //     {id: 2, label: 'Node 2', title: 'I have a popup!'},
+    //     {id: 3, label: 'Node 3', title: 'I have a popup!'},
+    //     {id: 4, label: 'Node 4', title: 'I have a popup!'},
+    //     {id: 5, label: 'Node 5', title: 'I have a popup!'}
+    // ]);
+
+    // // create an array with edges
+    // var edges = new vis.DataSet([
+    //     {id:1, from: 1, to: 3, title: 'I have a popup!'},
+    //     {id:2, from: 1, to: 2, title: 'I have a popup!'},
+    //     {id:3, from: 2, to: 4, title: 'I have a popup!'},
+    //     {id:4, from: 2, to: 5, title: 'I have a popup!'}
+    // ]);
+
+    var nodes = '[{"label": "44:94:FC:8F:D7:FF"}, {"label": "E0:07:1B:50:A8:02"}, {"label": "C4:2F:90:70:83:E5"}, {"label": "C4:2F:90:70:83:CB"}, {"label": "A4:14:37:40:1F:BD"}, {"label": "4C:BD:8F:E0:E1:A8"}, {"label": "18:68:CB:BD:7B:1B"}, {"label": "A0:B3:CC:FA:D6:D7"}, {"label": "00:18:F3:1D:63:AF"}, {"label": "00:11:DF:00:3C:A0"}, {"label": "00:11:DF:00:3E:28"}, {"label": "00:03:EA:0F:F2:FB"}, {"label": "A4:14:37:2E:B6:DA"}, {"label": "A4:14:37:2E:B6:CC"}, {"label": "00:19:D1:9E:8D:76"}, {"label": "C4:2F:90:B9:F0:A1"}, {"label": "C4:2F:90:B7:6E:FB"}, {"label": "C4:2F:90:B9:F1:37"}, {"label": "C4:2F:90:B7:6C:A0"}, {"label": "C4:2F:90:B9:F0:A9"}, {"label": "C4:2F:90:BC:73:94"}, {"label": "4C:BD:8F:E0:E0:63"}, {"label": "00:03:EA:0F:F2:E2"}, {"label": "A4:14:37:2E:B6:DD"}, {"label": "A4:14:37:2E:B6:E7"}, {"label": "A4:14:37:2E:B6:E0"}, {"label": "54:C4:15:75:64:FF"}, {"label": "B8:27:EB:4F:7E:04"}, {"label": "A4:14:37:25:05:61"}, {"label": "A4:14:37:2E:B6:D6"}, {"label": "00:20:85:F7:A1:E8"}, {"label": "18:68:CB:BD:7B:49"}, {"label": "A4:14:37:6E:B0:A7"}, {"label": "18:68:CB:BD:7B:19"}, {"label": "A4:14:37:6E:B0:D0"}, {"label": "A4:14:37:6E:AF:57"}, {"label": "A4:14:37:6E:AF:FA"}, {"label": "00:14:38:A5:E1:98"}, {"label": "00:20:85:F7:A1:EA"}, {"label": "A4:14:37:6E:B0:08"}, {"label": "C4:2F:90:BC:73:79"}, {"label": "C4:2F:90:BC:73:F4"}, {"label": "C4:2F:90:BC:73:55"}, {"label": "00:03:EA:0F:F3:2D"}, {"label": "C4:2F:90:BC:73:42"}, {"label": "28:57:BE:DD:9A:42"}, {"label": "A4:14:37:2E:B6:DB"}, {"label": "A4:14:37:2E:B2:FA"}, {"label": "A4:14:37:2E:B6:C0"}, {"label": "A4:14:37:2E:B6:F6"}, {"label": "00:03:EA:0F:F3:4E"}, {"label": "A4:14:37:2E:B2:6F"}, {"label": "A4:14:37:2E:B8:6C"}, {"label": "A4:14:37:2E:B7:F6"}, {"label": "28:57:BE:D7:D5:01"}, {"label": "A4:14:37:2E:B8:89"}, {"label": "A4:14:37:2E:B3:30"}, {"label": "A4:14:37:2E:B7:F5"}, {"label": "A4:14:37:2E:B8:3F"}, {"label": "A4:14:37:2E:B3:C2"}, {"label": "A4:14:37:2E:B3:C0"}, {"label": "00:1D:60:73:FF:68"}, {"label": "A4:14:37:25:04:31"}, {"label": "A4:14:37:25:05:F1"}, {"label": "A4:14:37:25:05:AB"}, {"label": "A4:14:37:25:05:CE"}, {"label": "18:68:CB:BD:78:E5"}, {"label": "00:10:40:92:6E:F9"}, {"label": "00:20:85:F7:8D:9C"}, {"label": "44:19:B7:0F:96:E5"}, {"label": "44:19:B6:19:CC:CC"}, {"label": "A4:14:37:25:04:A6"}, {"label": "A4:14:37:25:05:3B"}, {"label": "54:C4:15:1D:3F:54"}, {"label": "BC:AD:28:5C:42:4E"}, {"label": "74:D4:35:15:9F:C3"}, {"label": "44:19:B6:37:67:F1"}, {"label": "44:19:B6:37:68:D3"}, {"label": "44:19:B6:67:2E:50"}, {"label": "00:19:D1:FA:EB:D8"}, {"label": "00:40:48:B8:73:F7"}, {"label": "44:19:B6:1B:68:E6"}, {"label": "44:19:B6:37:68:9C"}, {"label": "44:19:B6:1B:53:04"}, {"label": "78:24:AF:38:BA:59"}, {"label": "44:19:B6:1B:53:B1"}, {"label": "00:0A:CF:20:02:65"}, {"label": "00:0A:CF:20:02:5E"}, {"label": "00:0A:CF:20:02:50"}, {"label": "00:0A:CF:20:02:67"}, {"label": "C4:2F:90:B7:71:18"}, {"label": "00:0A:CF:20:02:57"}, {"label": "00:0A:CF:20:02:54"}, {"label": "C4:2F:90:BC:73:49"}, {"label": "C4:2F:90:BC:73:51"}, {"label": "4C:BD:8F:E0:E0:48"}, {"label": "C4:2F:90:BC:73:7D"}, {"label": "C4:2F:90:BC:73:77"}, {"label": "C4:2F:90:BC:73:B1"}, {"label": "C4:2F:90:BC:73:E2"}, {"label": "00:19:D1:8C:AA:72"}, {"label": "18:68:CB:BD:79:0A"}, {"label": "6C:3B:6B:01:F3:4C"}, {"label": "BC:AD:28:B7:0E:01"}, {"label": "C4:2F:90:B7:73:2C"}, {"label": "E0:07:1B:50:A8:00"}, {"label": "54:04:A6:A0:85:7E"}, {"label": "00:1E:58:AA:63:8A"}, {"label": "9C:93:4E:43:70:56"}, {"label": "00:1E:58:6E:5A:A3"}, {"label": "1C:7E:E5:A2:C0:00"}, {"label": "08:00:37:B0:E0:73"}, {"label": "00:19:D1:8F:3C:92"}, {"label": "00:11:D8:12:78:D9"}, {"label": "74:D4:35:19:5B:71"}, {"label": "28:57:BE:DD:9A:71"}, {"label": "00:0C:46:17:57:9B"}, {"label": "00:13:20:62:69:37"}, {"label": "28:57:BE:18:A6:E7"}, {"label": "28:57:BE:18:A7:07"}, {"label": "C4:2F:90:2D:F5:63"}, {"label": "C4:2F:90:73:19:57"}, {"label": "C4:2F:90:73:16:46"}, {"label": "C4:2F:90:7B:A7:C4"}, {"label": "C8:60:00:5A:28:64"}, {"label": "A4:14:37:38:96:42"}, {"label": "A4:14:37:38:96:4B"}, {"label": "D0:22:12:D5:A4:87"}, {"label": "54:04:A6:A1:C8:0D"}, {"label": "00:19:D1:8C:AA:86"}, {"label": "08:00:37:FF:7D:D4"}, {"label": "54:04:A6:A1:BF:86"}, {"label": "C8:60:00:54:DA:D7"}, {"label": "BC:AE:C5:96:AD:6A"}, {"label": "BC:AE:C5:DC:CD:28"}, {"label": "00:23:54:B7:C8:A9"}, {"label": "C8:60:00:C7:96:56"}, {"label": "00:C0:CA:18:5B:1B"}, {"label": "00:1C:C0:61:C9:24"}, {"label": "00:30:84:27:C5:97"}, {"label": "00:19:D1:9E:C5:DA"}, {"label": "00:00:AA:F1:13:B3"}, {"label": "9C:93:4E:84:A4:84"}, {"label": "00:22:15:CC:0E:96"}, {"label": "C8:60:00:54:D4:92"}, {"label": "00:26:18:F0:DB:40"}, {"label": "BC:AE:C5:DD:01:3A"}, {"label": "00:D0:43:7A:CC:C2"}, {"label": "C8:60:00:A1:EE:9D"}, {"label": "00:1A:4B:27:7D:9A"}, {"label": "D8:50:E6:41:FE:96"}, {"label": "D8:50:E6:42:05:AD"}, {"label": "00:D0:43:7A:CC:CB"}, {"label": "50:46:5D:90:18:64"}, {"label": "08:00:37:CE:A3:4D"}, {"label": "08:00:37:B0:E5:AF"}, {"label": "00:19:D1:9E:CA:84"}, {"label": "20:CF:30:C9:CB:01"}, {"label": "30:5A:3A:47:04:23"}, {"label": "50:46:5D:B2:CF:01"}, {"label": "00:22:15:81:4A:C4"}, {"label": "14:DA:E9:B1:B7:68"}, {"label": "30:5A:3A:47:04:22"}, {"label": "54:04:A6:A0:85:76"}, {"label": "74:D0:2B:93:8C:71"}, {"label": "50:46:5D:09:1B:5C"}, {"label": "20:CF:30:E8:65:8F"}, {"label": "C8:60:00:C7:96:1A"}, {"label": "18:68:CB:75:ED:4D"}, {"label": "C4:04:15:8C:2E:78"}, {"label": "18:68:CB:75:ED:41"}, {"label": "C4:2F:90:61:9D:9B"}, {"label": "E0:07:1B:50:38:60"}, {"label": "00:0D:87:98:D8:F1"}, {"label": "BC:AE:C5:DC:CE:3A"}, {"label": "9C:93:4E:0A:A0:3D"}, {"label": "00:0B:DB:51:01:96"}, {"label": "08:62:66:C6:06:4F"}, {"label": "5C:F9:DD:E1:0C:9A"}, {"label": "C8:60:00:A1:EE:A6"}, {"label": "1C:7E:E5:A2:86:00"}, {"label": "FC:75:16:B5:60:00"}, {"label": "BC:F6:85:35:66:00"}, {"label": "FC:75:16:B5:9C:00"}, {"label": "E0:07:1B:50:38:62"}, {"label": "1C:7E:E5:A2:84:00"}, {"label": "FC:75:16:B5:6C:00"}, {"label": "C4:04:15:8C:2E:7A"}, {"label": "64:D1:54:C7:00:57"}, {"label": "08:60:6E:73:B5:6F"}, {"label": "00:03:2D:30:BF:32"}, {"label": "C8:60:00:C7:96:57"}, {"label": "74:D0:2B:90:3D:25"}, {"label": "08:00:37:B0:E0:6C"}, {"label": "50:46:5D:B2:CE:FF"}, {"label": "08:00:37:8A:64:38"}, {"label": "D8:50:E6:41:01:F8"}, {"label": "C8:60:00:A1:ED:B0"}, {"label": "D8:50:E6:41:FE:AD"}, {"label": "50:46:5D:09:1B:5F"}, {"label": "08:00:37:D2:11:29"}, {"label": "08:62:66:2E:84:76"}, {"label": "00:00:AA:AD:47:3F"}, {"label": "50:46:5D:B2:CE:F3"}, {"label": "D8:50:E6:40:FD:DA"}, {"label": "50:46:5D:09:1B:5D"}, {"label": "9C:93:4E:84:87:25"}, {"label": "30:5A:3A:48:D0:AA"}, {"label": "D8:50:E6:42:03:BD"}, {"label": "20:CF:30:E8:68:5C"}, {"label": "10:BF:48:E1:76:F9"}, {"label": "40:16:7E:67:33:25"}, {"label": "00:1C:C0:4E:BE:92"}, {"label": "D8:50:E6:41:00:96"}, {"label": "20:CF:30:C8:C2:7B"}, {"label": "BC:AE:C5:96:AD:65"}, {"label": "00:13:20:62:69:75"}, {"label": "00:13:D4:F9:89:D6"}, {"label": "50:46:5D:B2:CE:FE"}, {"label": "BC:AE:C5:24:CA:FA"}, {"label": "00:19:D1:9E:88:99"}, {"label": "20:CF:30:EA:26:7A"}, {"label": "00:CC:A0:00:12:8C"}, {"label": "00:CC:A0:00:12:81"}, {"label": "00:50:41:7B:19:84"}, {"label": "00:07:32:1F:59:52"}, {"label": "00:CC:A0:00:12:67"}, {"label": "00:CC:A0:00:1A:9A"}, {"label": "D8:50:E6:41:10:61"}, {"label": "50:46:5D:09:1B:5E"}, {"label": "1C:87:2C:77:E7:C7"}, {"label": "FC:75:16:95:99:00"}, {"label": "00:15:17:4D:94:CD"}, {"label": "98:90:96:BA:8D:1A"}, {"label": "00:02:B3:51:85:8A"}, {"label": "00:15:17:4D:90:6C"}, {"label": "18:68:CB:75:ED:4F"}, {"label": "AC:1F:6B:13:D6:10"}, {"label": "00:0C:46:17:59:40"}, {"label": "00:40:9D:6A:FD:09"}, {"label": "00:25:90:94:A1:14"}, {"label": "00:10:74:68:0D:7C"}, {"id": 1, "label": "10.4.0.200"}, {"id": 2, "label": "10.4.0.201"}, {"id": 3, "label": "10.4.0.202"}, {"id": 4, "label": "10.4.0.203"}, {"id": 5, "label": "10.4.0.204"}, {"id": 6, "label": "10.4.0.205"}, {"id": 7, "label": "10.4.0.206"}, {"id": 8, "label": "10.4.0.207"}, {"id": 9, "label": "10.4.0.208"}, {"id": 10, "label": "10.4.0.209"}, {"id": 11, "label": "10.4.0.210"}, {"id": 13, "label": "10.4.0.212"}, {"id": 14, "label": "10.4.0.213"}, {"id": 15, "label": "10.4.0.214"}, {"id": 16, "label": "10.4.0.215"}, {"id": 17, "label": "10.4.0.217"}, {"id": 18, "label": "10.4.0.218"}, {"id": 19, "label": "10.4.0.1"}, {"id": 20, "label": "10.4.100.12"}, {"id": 21, "label": "10.4.100.13"}, {"id": 22, "label": "10.4.100.111"}, {"id": 23, "label": "10.4.100.121"}, {"id": 24, "label": "10.4.100.131"}, {"id": 25, "label": "10.4.100.171"}, {"id": 26, "label": "10.4.100.211"}, {"id": 27, "label": "10.4.100.212"}, {"id": 28, "label": "10.4.100.213"}, {"id": 29, "label": "10.4.100.214"}, {"id": 30, "label": "10.4.100.215"}, {"id": 31, "label": "10.4.100.216"}, {"id": 32, "label": "10.4.100.231"}, {"id": 33, "label": "10.4.100.251"}]';
+    var edges = '[{"id": 1, "from": 1, "to": 1, "title": 1}, {"id": 2, "from": 1, "to": 2, "title": 1}, {"id": 3, "from": 1, "to": 3, "title": 1}, {"id": 4, "from": 1, "to": 4, "title": 1}, {"id": 5, "from": 1, "to": 6, "title": 1}, {"id": 6, "from": 1, "to": 7, "title": 1}, {"id": 7, "from": 1, "to": 8, "title": 1}, {"id": 8, "from": 1, "to": 9, "title": 1}, {"id": 9, "from": 1, "to": 10, "title": 1}, {"id": 10, "from": 1, "to": 11, "title": 1}, {"id": 11, "from": 1, "to": 13, "title": 1}, {"id": 12, "from": 1, "to": 14, "title": 1}, {"id": 13, "from": 1, "to": 15, "title": 1}, {"id": 14, "from": 1, "to": 16, "title": 1}, {"id": 15, "from": 1, "to": 17, "title": 1}, {"id": 16, "from": 1, "to": 18, "title": 1}, {"id": 17, "from": 1, "to": 19, "title": 1}, {"id": 18, "from": 1, "to": 20, "title": 1}, {"id": 19, "from": 1, "to": 21, "title": 1}, {"id": 20, "from": 1, "to": 22, "title": 1}, {"id": 21, "from": 1, "to": 23, "title": 1}, {"id": 22, "from": 1, "to": 24, "title": 1}, {"id": 23, "from": 1, "to": 25, "title": 1}, {"id": 24, "from": 1, "to": 26, "title": 1}, {"id": 25, "from": 1, "to": 27, "title": 1}, {"id": 26, "from": 1, "to": 28, "title": 1}, {"id": 27, "from": 1, "to": 29, "title": 1}, {"id": 28, "from": 1, "to": 30, "title": 1}]';
+    nodes = JSON.parse(nodes);
+    edges = JSON.parse(edges);
+
+    // create a network
+    var container = document.getElementById('mynetwork');
+    var data = {
+        nodes: nodes,
+        edges: edges
+    };
+
+    var options = { };
+
+    var network = new vis.Network(container, data, options);
+
+    network.on("click", function (params) {
+        console.log(data.edges.get(this.getSelectedEdges()));
+    });
+
+</script>
+
+
+</body>
+</html>
