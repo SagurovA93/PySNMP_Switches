@@ -221,7 +221,7 @@ def get_fdb_table(community,ip,port):
 
     for mac_address in mac_table:
         fdb_table[int(mac_address[1])] = fdb_table[int(mac_address[1])] + [[str(mac_address[0]),str(mac_address[2])]]
-    return fdb_table, vlans
+    return fdb_table, vlans, mac_table
 
 
 def get_switch_arp(community, ip, port):
@@ -249,14 +249,19 @@ def get_switch_arp(community, ip, port):
     for answer in raw_answers:
         string, mac_address = answer[0].split('=')
         ip_address = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} ', answer[0].split('=')[0])[0].split(' ')[0]
-        arp_table.append([ip_address, str(mac_address).upper()])
+        arp_table.append([ip_address, str(mac_address).upper().split(' ')[1]])
 
     return arp_table
 
 
 def get_switch_fdqn(IP_ADDRESS):
-    switch_fdqn = socket.gethostbyaddr(IP_ADDRESS)[0]
-    return(switch_fdqn)
+    try:
+        switch_fdqn = socket.gethostbyaddr(IP_ADDRESS)[0]
+        return switch_fdqn
+    except socket.gaierror as socketError:
+        return str(socketError) + ' ' + IP_ADDRESS
+    except socket.herror as socketError:
+        return str(socketError) + ' ' + IP_ADDRESS
 
 
 def get_switch_info(community,ip,port):
@@ -267,7 +272,7 @@ def get_switch_info(community,ip,port):
     if ( SWITCH_DESCRIPTION[0] == 1 ):
         return 1
     SWITCH_UPTIME_time_tick = snmp_get(community,ip,port, '1.3.6.1.2.1.1.3.0') #1.3.6.1.2.1.1.3 - uptime
-    FDB_TABLE, VLANS = get_fdb_table(community,ip,port)
+    FDB_TABLE, VLANS, MAC_TABLE = get_fdb_table(community,ip,port)
     SWITCH_PORTS = get_if_stat(community,ip,port)
 
 
@@ -405,7 +410,7 @@ def write_switch_full_data(community, ip, port, date_time, db_ip_address = '10.4
     # Получаем статистику портов
     ports = get_if_stat(community, ip, port)
     # Получаем fdb таблицу и информацию о vlan
-    fdb_tables, vlans = get_fdb_table(community, ip, port)
+    fdb_tables, vlans, mac_table = get_fdb_table(community, ip, port)
     # Получаем arp таблицу
     arp_table = get_switch_arp(community, ip, port)
     # Получаем switch Description
@@ -444,11 +449,24 @@ def write_switch_full_data(community, ip, port, date_time, db_ip_address = '10.4
         for mac_string in fdb_tables[port_number]:
             mac_address = mac_string[0]
             mac_vid = mac_string[1]
-            sql_insert_fdb_table = """ INSERT FDB_tables(id_requests, id_ports,  mac_address, VID)
-                values('%(id_requests)s', '%(id_ports)s', '%(mac_address)s', '%(VID)s')""" % \
-                                   {"id_requests": id_request, "id_ports": id_ports, "mac_address": mac_address,
-                                    "VID": mac_vid}
-            insert_data_db(db_ip_address, db_username, db_password, db_name, sql_insert_fdb_table)
+            for arp_string in arp_table:
+                mac = arp_string[1]
+                if mac_address == mac:
+                    print(mac_address, mac)
+                    ip_address = arp_string[0]
+                    fdqn = get_switch_fdqn(ip_address)
+
+                    sql_insert_fdb_table = """ INSERT FDB_tables(id_requests, id_ports,  mac_address, VID, ip_address, fdqn)
+                                    values('%(id_requests)s', '%(id_ports)s', '%(mac_address)s', '%(VID)s', '%(ip_address)s', '%(fdqn)s')""" % \
+                                           {"id_requests": id_request, "id_ports": id_ports, "mac_address": mac_address,
+                                            "VID": mac_vid, "ip_address": ip_address, "fdqn": fdqn}
+                    insert_data_db(db_ip_address, db_username, db_password, db_name, sql_insert_fdb_table)
+                else:
+                    sql_insert_fdb_table = """ INSERT FDB_tables(id_requests, id_ports,  mac_address, VID)
+                                    values('%(id_requests)s', '%(id_ports)s', '%(mac_address)s', '%(VID)s')""" % \
+                                           {"id_requests": id_request, "id_ports": id_ports, "mac_address": mac_address,
+                                            "VID": mac_vid}
+                    insert_data_db(db_ip_address, db_username, db_password, db_name, sql_insert_fdb_table)
 
     sql_insert_into_statistis_switch = """ INSERT statistics_switch(id_switches, id_requests, switch_description, switch_uptime) 
         values('%(id_switches)s', '%(id_requests)s', '%(switch_description)s', '%(switch_uptime)s')""" % {
@@ -491,21 +509,27 @@ if __name__ == "__main__":
         g_time_start = strftime("%H:%M:%S", localtime())
         REQUEST_DATE = strftime("%Y-%m-%d %H:%M:%S", localtime())  # Время запроса
         for IP_ADDRESS in IP_ADDRESS_LIST:
-            print(IP_ADDRESS)
-            fdb_table, vlans = get_fdb_table(COMMUNITY, IP_ADDRESS, SNMP_PORT)
-            arp_table = get_switch_arp(COMMUNITY, IP_ADDRESS, SNMP_PORT)
-            #print(arp_table)
-    else:
-        IP_ADDRESS=user_input()
-        write_statistics_ports(COMMUNITY, IP_ADDRESS, SNMP_PORT)
-    """
-        for IP_ADDRESS in IP_ADDRESS_LIST:
             time_start = strftime("%H:%M:%S", localtime())
             SWITCH_FDQN = get_switch_fdqn(IP_ADDRESS)
             write_switch_full_data(COMMUNITY, IP_ADDRESS, SNMP_PORT, REQUEST_DATE)
             time_finish = strftime("%H:%M:%S", localtime())
             print('\n', time_start, time_finish)
-
         g_time_finish = strftime("%H:%M:%S", localtime())
-        print('\n' ,g_time_start, g_time_finish)
-    """
+        print('\n', g_time_start, g_time_finish)
+        """
+        for IP_ADDRESS in IP_ADDRESS_LIST:
+            print(IP_ADDRESS)
+            FDB_TABLE, vlans, mac_table  = get_fdb_table(COMMUNITY, IP_ADDRESS, SNMP_PORT)
+            ARP_TABLE = get_switch_arp(COMMUNITY, IP_ADDRESS, SNMP_PORT)
+        for string1 in mac_table:
+            mac_1 = string1[0]
+            for string2 in arp_table:
+                mac_2 = string2[1]
+                if mac_1 == mac_2:
+                    hostaddr = string2[0]
+                    hostname = get_switch_fdqn(hostaddr)
+                    print(string1[0], hostaddr, hostname)
+        """
+    else:
+        IP_ADDRESS=user_input()
+        write_statistics_ports(COMMUNITY, IP_ADDRESS, SNMP_PORT)
