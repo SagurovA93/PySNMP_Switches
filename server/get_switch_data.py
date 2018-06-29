@@ -2,25 +2,27 @@
 # -*- coding: utf-8 -*-
 
 import re
-import sys
-import ipaddress
-import argparse
+#import sys
+#import ipaddress
+#import argparse
 import socket
-import MySQLdb
+#import MySQLdb
 import time
+import datetime
 from pysnmp.hlapi import *
 
 
-def snmp_walk_2c(community,ip,port,oid):
+def snmp_walk_2c(community, ip, port, oid ):
     raw_answer = []
+    object_type = ObjectType(ObjectIdentity(oid))
     for (errorIndication,
          errorStatus,
          errorIndex,
          varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
-                              UdpTransportTarget((ip, port), timeout=5),
+                              UdpTransportTarget((ip, port), timeout=1),
                               ContextData(),
-                              ObjectType(ObjectIdentity(oid)),
+                              object_type,
                               lexicographicMode=False):
 
         if errorIndication:
@@ -39,12 +41,11 @@ def snmp_walk_2c(community,ip,port,oid):
 def get_switch_data(community, switch_list, port):
 
     switches = []
-    switch = {}
 
     for ip in switch_list:
+
         raw_interfaces = []
-        raw_fdb = []
-        raw_arp = []
+
         for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
                               UdpTransportTarget((ip, port), timeout=2),
@@ -70,12 +71,17 @@ def get_switch_data(community, switch_list, port):
             else:
                 raw_interfaces.append([x.prettyPrint() for x in varBinds])
 
+        raw_description = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.1.1')
+        raw_switch_uptime = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.1.3') #1.3.6.1.2.1.1.3
         raw_vlan_list = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.17.7.1.2.1.1.2')
         raw_fdb = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.17.7.1.2.2.1.2')
-        raw_arp = snmp_walk_2c(community, ip, port, ('IP-MIB', 'ipNetToMediaPhysAddress')) #!
-
+        raw_arp = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.4.22.1.2') #! IP-MIB.ipNetToMediaPhysAddress
+        #1.3.6.1.4.1.171.11.55.2.2.1.4.3    - Загрузка CPU за пять минут на DGS-3312SR
+        #1.3.6.1.4.1.171.12.1.1.6.3         - Загрузка CPU за пять минут на DGS-3420-52T
         switch = {
             'ip address': ip,
+            'raw description': raw_description,
+            'raw switch uptime': raw_switch_uptime,
             'raw interfaces': raw_interfaces,
             'raw vlan list': raw_vlan_list,
             'raw fdb': raw_fdb,
@@ -87,14 +93,58 @@ def get_switch_data(community, switch_list, port):
 
 
 def parse_switch_data(switch_data):
+
+    def __mac_to_hex(mac_address):
+        number_letter = {15: 'F', 14: 'E', 13: 'D', 12: 'C', 11: 'B', 10: 'A'}
+        def number_to_letter(R):
+            if R < 10:
+                R = str(R)
+                return R
+            for key in number_letter:
+                if R == key:
+                    R = number_letter.get(key)
+                    return R
+
+        mac_address_hex = ''
+        mac_address = mac_address.split('.')
+        i = 0
+        for octet in mac_address:
+            i = i + 1
+            Result = ''
+            N = int(octet)
+            if N < 16:
+                N = number_to_letter(N)
+                Result = '0' + N
+            else:
+                while N >= 16:
+                    R = N // 16
+                    N = N - (R * 16)
+                    R = number_to_letter(R)
+                    Result = str(Result) + str(R)
+                N = number_to_letter(N)
+                Result = str(Result) + str(N)
+
+            if i != 6:
+                mac_address_hex = mac_address_hex + Result + ':'
+            else:
+                mac_address_hex = mac_address_hex + Result
+
+        return (mac_address_hex)
+    def __get_hostname(host_ip):
+        try:
+            hostname = socket.gethostbyaddr(host_ip)[0]
+        except:
+            hostname = 'Unknown'
+        return hostname
+
     switches = []
     for switch in switch_data:
         switch_ip = switch['ip address']
 
-        switch_info = {
-            'ip address': switch_ip,
-        }
         interfaces = {}
+        vlans = {}
+        arp_table = {}
+        fdb_table = {}
         raw_interfaces = switch['raw interfaces']
         for interface in raw_interfaces:
 
@@ -118,13 +168,61 @@ def parse_switch_data(switch_data):
                 'interface in Bytes': if_inB,
                 'interface out Bytes': if_outB
                 }
-        switch_info["interfaces"] = interfaces
+
+        raw_vlan = switch['raw vlan list']
+        for vlan_string in raw_vlan:
+            vid, hosts_amount = vlan_string.split(' = ')
+            vid = vid.split('SNMPv2-SMI::mib-2.17.7.1.2.1.1.2.')[1]
+            vlans[vid] = {
+                'host amount': hosts_amount
+            }
+
+        raw_arp = switch['raw arp']
+        for arp_string in raw_arp:
+            host_ip, host_mac = arp_string.split(' = ')
+            host_ip = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', host_ip)[0]
+            host_mac = host_mac[2:4] + ':' + host_mac[4:6] + ':' + host_mac[6:8] + ':' \
+                       + host_mac[8:10] + ':' + host_mac[10:12] + ':' + host_mac[12:14]
+            if host_mac != 'ff:ff:ff:ff:ff:ff':
+                arp_table[host_mac.upper()] = {
+                    'host ip': host_ip
+                }
 
         raw_fdb = switch['raw fdb']
-        for fdb_table in raw_fdb:
-            print(fdb_table)
+        for fdb_string in raw_fdb:
+            mac, port = fdb_string.split(' = ')
+            mac = re.findall('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', mac)[0].upper()
+            mac = __mac_to_hex(mac)
+            try:
+                host_ip = arp_table[mac].get('host ip')
+                hostname = 'Unknown'
+                #hostname = __get_hostname(host_ip)
+            except KeyError:
+                host_ip = 'Unknown'
+                hostname = 'Unknown'
+            fdb_table[port] = {
+                'host mac': mac,
+                'host ip': host_ip,
+                'host name': hostname
+            }
 
+        raw_description = switch['raw description']
+        raw_switch_uptime = switch['raw switch uptime']
+        switch_description = raw_description[0].split(' = ')[1]
+        switch_uptime = datetime.timedelta(seconds=(int(raw_switch_uptime[0].split(' = ')[1]) / 100))
 
+        switch_info = {
+            'ip address': switch_ip,
+            'switch description': switch_description,
+            'switch uptime': switch_uptime,
+            'interfaces': interfaces,
+            'vlans': vlans,
+            'fdb table': fdb_table,
+        }
+
+        switches.append(switch_info)
+
+    return switches
 
 if __name__ == "__main__":
     agent = {
@@ -152,9 +250,16 @@ if __name__ == "__main__":
                   '10.4.100.216', '10.4.100.231', '10.4.100.251']
 
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
-    switches = ['10.4.0.200']
+    switches = ['10.1.13.249', '10.1.13.252']
     start1 = time.time()
     switch_raw = get_switch_data(agent['community'], switches, agent['snmp_port'])
     end1 = time.time()
-    print(end1 - start1)
-    parse_switch_data(switch_raw)
+    start2 = time.time()
+    switches = parse_switch_data(switch_raw)
+
+    for switch in switches:
+        for key in sorted(switch):
+            print(key, switch[key])
+
+    end2 = time.time()
+    print('\n', end1 - start1 , end2 - start2, end2 - start1)
