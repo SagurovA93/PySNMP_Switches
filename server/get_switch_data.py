@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import re
-#import sys
-#import ipaddress
-#import argparse
+import pymysql
 import socket
-#import MySQLdb
+from time import localtime, strftime
 import time
 import datetime
 from pysnmp.hlapi import *
@@ -92,6 +90,34 @@ def get_switch_data(community, switch_list, port):
     return switches
 
 
+def get_switch_table_db(db_address, user, password, db_name, charset):
+    # SQL - запросы чтение
+    get_switches = "SELECT * FROM switches"
+    get_ports = "SELECT * FROM ports"
+
+    # Подключиться к базе данных.
+    connection = pymysql.connect(host=db_address,
+                                 user=user,
+                                 password=password,
+                                 db=db_name,
+                                 charset=charset,
+                                 cursorclass=pymysql.cursors.DictCursor)
+    try:
+
+        with connection.cursor() as cursor:
+            # 1. Взять всю таблицу свитчей
+            cursor.execute(get_switches)
+            switches_table = cursor.fetchall()
+            # 2. Взять все порты свитчей
+            cursor.execute(get_ports)
+            ports_table = cursor.fetchall()
+
+    finally:
+        connection.close()
+
+    return switches_table, ports_table
+
+
 def parse_switch_data(switch_data):
 
     def __mac_to_hex(mac_address):
@@ -159,7 +185,7 @@ def parse_switch_data(switch_data):
             if_inB = interface[6].split(' = ')[1]
             if_outB = interface[7].split(' = ')[1]
 
-            interfaces[if_number] = {
+            interfaces[int(if_number)] = {
                 'interface description': if_descr,
                 'interface speed': if_speed,
                 'interface mac': if_mac,
@@ -222,13 +248,47 @@ def parse_switch_data(switch_data):
 
         switches.append(switch_info)
 
+    # Добавляю актуальную информацию по свитчам и портам из БД
+    # switch_id & ip_ports
+    switches_table, ports_table = get_switch_table_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'])
+
+    for switch in switches:
+        switch_ip = switch['ip address']
+        switch_if = switch['interfaces']
+
+        for switch_tb in switches_table: # Получаю id switch для каждого свитча
+            if switch_tb['ip'] == switch_ip:
+                id_switches = switch_tb['id_switches']
+                switch['switch id'] = id_switches # Добавляю id свитча в словарь свитча
+
+        switch_ports = []  # Выбираю только порты данного свитча из общей солянки
+        for port in ports_table:
+            if port['id_switches'] == switch['switch id']:
+                switch_ports.append(port)
+
+        for port in switch_ports:
+            id_ports, port_number = port['id_ports'], port['port_number'] # id и номер порта  конкретного свитча
+            try:
+                switch_if[int(port_number)]['port id'] = id_ports   # Добавляю ключ 'port id' во временный словарь для интерфейсов свитча
+            except KeyError:
+                print('У свитча нет такого порта, который есть в базе:',  '\n',
+                      'Свитч:', switch_ip, '\n'
+                      'Номер порта: ', int(port_number), '\n',
+                      'id порта в базе:', id_ports, '\n',
+                      )
+                continue
+            except:
+                print('Произошла непредвиденная ошибка, при обработке портов из базы')
+        switch['interfaces'] = switch_if
+
     return switches
 
+
 if __name__ == "__main__":
-    agent = {
+
+    snmp_agent = {
         'community': 'public',
-        'ip_address': '10.4.0.213',
-        'snmp_port': '161'
+        'port': 161,
     }
 
     cred = {
@@ -249,17 +309,27 @@ if __name__ == "__main__":
                   '10.4.100.212', '10.4.100.213', '10.4.100.214', '10.4.100.215',
                   '10.4.100.216', '10.4.100.231', '10.4.100.251']
 
+    N16_SWITCHES = ['10.1.13.249', '10.1.13.252']
+
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
-    switches = ['10.1.13.249', '10.1.13.252']
+
     start1 = time.time()
-    switch_raw = get_switch_data(agent['community'], switches, agent['snmp_port'])
+    switch_raw = get_switch_data(snmp_agent['community'], ['10.1.13.249'], snmp_agent['port'])
     end1 = time.time()
+
     start2 = time.time()
     switches = parse_switch_data(switch_raw)
-
-    for switch in switches:
-        for key in sorted(switch):
-            print(key, switch[key])
-
     end2 = time.time()
-    print('\n', end1 - start1 , end2 - start2, end2 - start1)
+
+    start3 = time.time()
+    for switch in switches:
+        for key in switch:
+            print(key, switch[key])
+    end3 = time.time()
+
+    print('\n',
+          'Сбор данных: ', round(end1 - start1, 5), 'секунд', '\n',
+          'Парсинг данных: ', round(end2 - start2, 5), 'секунд', '\n',
+          'Запись в БД:', round(end3 - start3, 5), 'секунд', '\n',
+          'Общее время: ', round(end3 - start1, 3), 'секунд', '\n',
+          )
