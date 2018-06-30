@@ -3,7 +3,7 @@
 
 import sys
 import socket
-import MySQLdb
+import pymysql
 from pysnmp.hlapi import *
 
 def get_switch_ports(community,ip,port):
@@ -39,7 +39,7 @@ def get_switch_ports(community,ip,port):
 
 
 def insert_data_db(ip_database, username, password, db_name, sql):
-    db = MySQLdb.connect(ip_database, username, password, db_name, charset='utf8')
+    db = pymysql.connect(ip_database, username, password, db_name, charset='utf8')
     cursor = db.cursor()
     cursor.execute(sql)
     db.commit()
@@ -48,7 +48,7 @@ def insert_data_db(ip_database, username, password, db_name, sql):
 
 
 def get_data_db(ip_database, username, password, db_name, sql):
-    db = MySQLdb.connect(ip_database, username, password, db_name, charset='utf8')
+    db = pymysql.connect(ip_database, username, password, db_name, charset='utf8')
     cursor = db.cursor()
     cursor.execute(sql)
     raw_data = cursor.fetchone()
@@ -72,11 +72,12 @@ if __name__ == "__main__":
                   '10.4.100.121', '10.4.100.131', '10.4.100.171', '10.4.100.211',
                   '10.4.100.212', '10.4.100.213', '10.4.100.214', '10.4.100.215',
                   '10.4.100.216', '10.4.100.231', '10.4.100.251']
+    N16_SWITCHES = ['10.1.13.249', '10.1.13.252']
 
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     TEST = ['10.4.0.201']
-    IP_ADDRESS_LIST = TEST
+    IP_ADDRESS_LIST = N16_SWITCHES
 
     for IP_ADDRESS in IP_ADDRESS_LIST:
         SWITCH_FDQN = socket.gethostbyaddr(IP_ADDRESS)[0]
