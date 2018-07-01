@@ -3,7 +3,6 @@
 
 import re
 import pymysql
-import socket
 from time import localtime, strftime
 import time
 import datetime
@@ -91,10 +90,15 @@ def get_switch_data(community, switch_list, port):
 
 
 def get_switch_table_db(db_address, user, password, db_name, charset):
-    # SQL - запросы чтение
+
+    # Время опроса свитчей
+    request_date = strftime("%Y-%m-%d %H:%M:%S", localtime())
+
+    # SQL - запросы
     get_switches = "SELECT * FROM switches"
     get_ports = "SELECT * FROM ports"
-
+    insert_time_request = "INSERT requests(DATE) value('%(request_date)s')" % {"request_date": request_date}
+    get_id_requests = "SELECT max(id_requests) FROM requests"
     # Подключиться к базе данных.
     connection = pymysql.connect(host=db_address,
                                  user=user,
@@ -111,11 +115,17 @@ def get_switch_table_db(db_address, user, password, db_name, charset):
             # 2. Взять все порты свитчей
             cursor.execute(get_ports)
             ports_table = cursor.fetchall()
+            # 3. Записать время опроса свитчей и взять id этого запроса
+            cursor.execute(insert_time_request)
+            connection.commit()
+            cursor.execute(get_id_requests)
+            id_request = cursor.fetchall()
+            id_request = id_request[0]['max(id_requests)']
 
     finally:
         connection.close()
 
-    return switches_table, ports_table
+    return switches_table, ports_table, id_request
 
 
 def parse_switch_data(switch_data):
@@ -156,12 +166,6 @@ def parse_switch_data(switch_data):
                 mac_address_hex = mac_address_hex + Result
 
         return (mac_address_hex)
-    def __get_hostname(host_ip):
-        try:
-            hostname = socket.gethostbyaddr(host_ip)[0]
-        except:
-            hostname = 'Unknown'
-        return hostname
 
     switches = []
     for switch in switch_data:
@@ -182,6 +186,7 @@ def parse_switch_data(switch_data):
                      + if_mac[8:10] + ':' + if_mac[10:12] + ':' + if_mac[12:14]
             if_state = interface[4].split(' = ')[1]
             if_uptime = interface[5].split(' = ')[1]
+            if_uptime = str(datetime.timedelta(seconds=(int(if_uptime) / 100)))
             if_inB = interface[6].split(' = ')[1]
             if_outB = interface[7].split(' = ')[1]
 
@@ -199,7 +204,7 @@ def parse_switch_data(switch_data):
         for vlan_string in raw_vlan:
             vid, hosts_amount = vlan_string.split(' = ')
             vid = vid.split('SNMPv2-SMI::mib-2.17.7.1.2.1.1.2.')[1]
-            vlans[vid] = {
+            vlans[int(vid)] = {
                 'host amount': hosts_amount
             }
 
@@ -217,20 +222,24 @@ def parse_switch_data(switch_data):
         raw_fdb = switch['raw fdb']
         for fdb_string in raw_fdb:
             mac, port = fdb_string.split(' = ')
+            # Оптимизировать! Использовать либо одну регулярку либо еще че придумать
+            vlan = re.findall('[0-9]{1,5}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', mac)[0].split('.')[0]
             mac = re.findall('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', mac)[0].upper()
             mac = __mac_to_hex(mac)
             try:
                 host_ip = arp_table[mac].get('host ip')
-                hostname = 'Unknown'
-                #hostname = __get_hostname(host_ip)
             except KeyError:
                 host_ip = 'Unknown'
-                hostname = 'Unknown'
-            fdb_table[port] = {
-                'host mac': mac,
-                'host ip': host_ip,
-                'host name': hostname
-            }
+            host = []
+            host.append((mac, vlan, host_ip))
+            try:
+                fdb_table[int(port)] = {
+                    'hosts' : fdb_table[int(port)]['hosts'] + host
+                }
+            except KeyError:
+                fdb_table[int(port)] = {
+                    'hosts': host
+                }
 
         raw_description = switch['raw description']
         raw_switch_uptime = switch['raw switch uptime']
@@ -248,13 +257,16 @@ def parse_switch_data(switch_data):
 
         switches.append(switch_info)
 
+    switches_table, ports_table, id_request = get_switch_table_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'])
+
     # Добавляю актуальную информацию по свитчам и портам из БД
     # switch_id & ip_ports
-    switches_table, ports_table = get_switch_table_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'])
 
     for switch in switches:
+        # Временные словари для парсинга
         switch_ip = switch['ip address']
         switch_if = switch['interfaces']
+        switch_fdb = switch['fdb table']
 
         for switch_tb in switches_table: # Получаю id switch для каждого свитча
             if switch_tb['ip'] == switch_ip:
@@ -266,10 +278,16 @@ def parse_switch_data(switch_data):
             if port['id_switches'] == switch['switch id']:
                 switch_ports.append(port)
 
-        for port in switch_ports:
+        for port in switch_ports:  # Добавляю 'port id' для каждого порта из словарей interfaces и fdb_table
             id_ports, port_number = port['id_ports'], port['port_number'] # id и номер порта  конкретного свитча
             try:
                 switch_if[int(port_number)]['port id'] = id_ports   # Добавляю ключ 'port id' во временный словарь для интерфейсов свитча
+
+                try:    # Добавляю ключ 'port id' во временный словарь для FDB таблицы
+                    switch_fdb[int(port_number)]['port id'] = id_ports
+                except KeyError:
+                    continue
+
             except KeyError:
                 print('У свитча нет такого порта, который есть в базе:',  '\n',
                       'Свитч:', switch_ip, '\n'
@@ -280,8 +298,95 @@ def parse_switch_data(switch_data):
             except:
                 print('Произошла непредвиденная ошибка, при обработке портов из базы')
         switch['interfaces'] = switch_if
+        switch['fdb table'] = switch_fdb
 
-    return switches
+    return switches, id_request
+
+
+def insert_db(db_address, user, password, db_name, charset, switches, id_request):
+
+    for switch in switches:
+
+        switch_id = switch['switch id']
+        switch_ip = switch['ip address']
+        switch_uptime = switch['switch uptime']
+        switch_descr = switch['switch description']
+        switch_vlans = switch['vlans']
+        switch_if = switch['interfaces']
+        switch_fdb = switch['fdb table']
+
+        vlan_tuples = []
+        for vlan in sorted(switch_vlans):
+            tupe = (vlan, int(switch_vlans[vlan]['host amount']), switch_id, id_request)
+            vlan_tuples.append(tupe)
+
+        interface_tuples = []
+        for interface in sorted(switch_if):
+            tupe = (switch_if[interface]['port id'], switch_if[interface]['interface description'],
+                    switch_if[interface]['interface speed'], switch_if[interface]['interface mac'],
+                    switch_if[interface]['interface status'], switch_if[interface]['interface uptime'],
+                    switch_if[interface]['interface in Bytes'], switch_if[interface]['interface out Bytes'],
+                    id_request)
+            interface_tuples.append(tupe)
+
+        fdb_tuples = []
+        for fdb_string in sorted(switch_fdb):
+            try:
+                id_port_req = ( id_request, switch_fdb[fdb_string]['port id'],)
+                hosts = switch_fdb[fdb_string]['hosts']
+                for host in hosts:
+                    fdb_tuples.append((id_port_req + host))
+            except KeyError:
+                print('Нет id port: ', fdb_string, switch_fdb[fdb_string])
+
+        # Подключиться к базе данных.
+        connection = pymysql.connect(host=db_address,
+                                         user=user,
+                                         password=password,
+                                         db=db_name,
+                                         charset=charset,
+                                         cursorclass=pymysql.cursors.DictCursor)
+        try:
+            with connection.cursor() as cursor:
+                # statistics_switch
+                # 1. Записываю инфомацию в таблицу statistics_switch: id_switches, id_requests, switch_description, switch_uptime
+                # 2. Записываю в таблицу vlan_table: VID, host_amount, id_switches, id_requests
+
+                insert_statistics_switch = """ INSERT statistics_switch(id_switches, id_requests, 
+                                                                        switch_description, switch_uptime) 
+                                                values('%(id_switches)s', '%(id_requests)s', 
+                                                        '%(switch_description)s', '%(switch_uptime)s')""" \
+                                                % {"id_switches": switch_id, "id_requests": id_request,
+                                                   "switch_description": switch_descr, "switch_uptime": switch_uptime}
+
+                insert_vlan_table = """ INSERT vlan_table(VID, host_amount, id_switches, id_requests ) 
+                                        values(%s, %s, %s, %s) """
+
+                # statistics_ports
+                # 1. ip_ports, port_description, port_speed,
+                #    port_mac, port_status, port_uptime, port_in_octets,
+                #    port_out_octets, id_requests
+
+                insert_statistics_ports = """ INSERT statistics_ports(id_ports, port_description,
+                                                                      port_speed, port_mac, 
+                                                                      port_status, port_uptime,
+                                                                      port_in_octets, port_out_octets, 
+                                                                      id_requests) 
+                                                                      values(%s, %s, %s, %s, %s, %s, %s, %s, %s) """
+
+                # FDB_tables
+                # 1. id_requests, id_ports, mac_address, VID, ip_address
+                insert_fdb_tables = """ INSERT FDB_tables(id_requests, id_ports, mac_address, VID, ip_address) 
+                                                                                        values(%s, %s, %s, %s, %s)"""
+
+                cursor.execute(insert_statistics_switch)
+                cursor.executemany(insert_vlan_table, vlan_tuples)
+                cursor.executemany(insert_statistics_ports, interface_tuples)
+                cursor.executemany(insert_fdb_tables, fdb_tuples)
+
+        finally:
+            connection.commit() # Записать изменения в БД
+            connection.close()
 
 
 if __name__ == "__main__":
@@ -314,17 +419,15 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], ['10.1.13.249'], snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], N16_SWITCHES, snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
-    switches = parse_switch_data(switch_raw)
+    switches, id_request = parse_switch_data(switch_raw)
     end2 = time.time()
 
     start3 = time.time()
-    for switch in switches:
-        for key in switch:
-            print(key, switch[key])
+    insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches, id_request)
     end3 = time.time()
 
     print('\n',
