@@ -419,7 +419,7 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], N16_SWITCHES, snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], SWITCHES_IZ2, snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
