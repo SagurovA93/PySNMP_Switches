@@ -6,7 +6,7 @@ import sys
 import ipaddress
 import argparse
 import socket
-import MySQLdb
+import pymysql
 from time import localtime, strftime
 from pysnmp.hlapi import *
 
@@ -304,7 +304,7 @@ def get_switch_info(community,ip,port):
 
 
 def insert_data_db(ip_database, username, password, db_name, sql):
-    db = MySQLdb.connect(ip_database, username, password, db_name, charset='utf8')
+    db = pymysql.connect(ip_database, username, password, db_name, charset='utf8')
     cursor = db.cursor()
     cursor.execute(sql)
     db.commit()
@@ -313,7 +313,7 @@ def insert_data_db(ip_database, username, password, db_name, sql):
 
 
 def get_data_db(ip_database, username, password, db_name, sql):
-    db = MySQLdb.connect(ip_database, username, password, db_name, charset='utf8')
+    db = pymysql.connect(ip_database, username, password, db_name, charset='utf8')
     cursor = db.cursor()
     cursor.execute(sql)
     raw_data = cursor.fetchone()
