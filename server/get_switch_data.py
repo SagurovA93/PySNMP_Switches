@@ -430,8 +430,8 @@ if __name__ == "__main__":
     end3 = time.time()
 
     print('\n',
-          'Сбор данных: ', round(end1 - start1, 5), 'секунд', '\n',
-          'Парсинг данных: ', round(end2 - start2, 5), 'секунд', '\n',
-          'Запись в БД:', round(end3 - start3, 5), 'секунд', '\n',
-          'Общее время: ', round(end3 - start1, 3), 'секунд', '\n',
+          'Сбор данных: ', datetime.timedelta(seconds=(int(end1 - start1))), '\n',
+          'Парсинг данных: ', round(int(end2 - start2), 7), 'секунд', '\n',
+          'Запись в БД:', round(int(end3 - start3), 5), 'секунд','\n',
+          'Общее время: ', datetime.timedelta(seconds=(int(end3 - start1))), '\n'
           )
