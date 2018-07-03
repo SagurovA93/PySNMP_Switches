@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+    <title>test</title>
+
+    <script type="text/javascript" src="{{ url_for('static', filename='js/lib/vis.min.js') }}"></script>
+    <link href="{{ url_for('static', filename='css/lib/vis-network.min.css') }}" rel="stylesheet" type="text/css"/>
+
+    <style type="text/css">
+        #mynetwork {
+            width: auto;
+            height: 1000px;
+            border: 1px solid lightgray;
+        }
+    </style>
+</head>
+<body>
+
+
+<div id="mynetwork"></div>
+
+<script type="text/javascript">
+
+    // // create an array with nodes
+    // var nodes = new vis.DataSet([
+    //     {id: 1, label: 'Node 1', title: 'I have a popup!', ip: 123},
+    //     {id: 2, label: 'Node 2', title: 'I have a popup!'},
+    //     {id: 3, label: 'Node 3', title: 'I have a popup!'},
+    //     {id: 4, label: 'Node 4', title: 'I have a popup!'},
+    //     {id: 5, label: 'Node 5', title: 'I have a popup!'}
+    // ]);
+
+    // // create an array with edges
+    // var edges = new vis.DataSet([
+    //     {id:1, from: 1, to: 3, title: 'I have a popup!'},
+    //     {id:2, from: 1, to: 2, title: 'I have a popup!'},
+    //     {id:3, from: 2, to: 4, title: 'I have a popup!'},
+    //     {id:4, from: 2, to: 5, title: 'I have a popup!'}
+    // ]);
+
+    var nodes = '{{ nodes | safe }}';
+    var edges = '{{ edges | safe }}';
+
+    nodes = JSON.parse(nodes);
+    edges = JSON.parse(edges);
+
+    // create a network
+    var container = document.getElementById('mynetwork');
+    var data = {
+        nodes: nodes,
+        edges: edges
+    };
+
+    var options = { };
+
+    var network = new vis.Network(container, data, options);
+
+    network.on("click", function (params) {
+        console.log(data.edges.get(this.getSelectedEdges()));
+    });
+
+</script>
+
+
+</body>
+</html>

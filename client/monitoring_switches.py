@@ -1,6 +1,6 @@
 import json
 from termcolor import colored
-import MySQLdb
+import pymysql
 
 
 class MonitoringSwitches:
@@ -11,7 +11,7 @@ class MonitoringSwitches:
         self.cred_db  = cred_db
         self.switches = {}
 
-        db = MySQLdb.connect(**self.cred_db)
+        db = pymysql.connect(**self.cred_db)
         cursor = db.cursor()
 
         self._db_switches_port(cursor)
