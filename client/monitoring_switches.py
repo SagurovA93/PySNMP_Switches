@@ -74,21 +74,23 @@ class MonitoringSwitches:
             self.switches[ip]['mac'].add(mac.upper())
 
 
-    def _foreach_switches(self, func_handler_port, func_handler_switch=None):
-        for ip_switch in self.switches.keys():
-            id_switches = self.switches[ip_switch].get('id_switches')
-            mac_swithces = self.switches[ip_switch].get('mac')
+    def _foreach_switches(self, func_handler_port, func_handler_switch=None, switches=None):
+        if switches is None:
+            switches = self.switches                
+        for ip_switch in switches.keys():
+            id_switches = switches[ip_switch].get('id_switches')
+            mac_swithces = switches[ip_switch].get('mac')
 
             if func_handler_switch is not None:
                 func_handler_switch(id_switches=id_switches, ip_switch= ip_switch, mac_swithces=mac_swithces)
                 continue
 
-            ports = self.switches[ip_switch].get('ports')
+            ports = switches[ip_switch].get('ports')
             if ports is None:
                 continue
             for port in ports.keys():
-                init_mac   = self.switches[ip_switch]['ports'][port]['init_mac']
-                change_mac = self.switches[ip_switch]['ports'][port]['change_mac']
+                init_mac   = switches[ip_switch]['ports'][port]['init_mac']
+                change_mac = switches[ip_switch]['ports'][port]['change_mac']
                 func_handler_port(
                     id_switches=id_switches, 
                     ip_switch= ip_switch, 
@@ -187,12 +189,58 @@ class MonitoringSwitches:
             _id_switches  = kwargs['id_switches']
             _ip_switch    = kwargs['ip_switch']
             _mac_swithces = kwargs['mac_swithces']
-            
-            self._foreach_switches(_handler_port)
+            if _ip_switch == '10.4.0.209':   
+                self._foreach_switches(_handler_port)
+
         edges = []
         self._foreach_switches(None, _handler)
         return json.dumps(edges)
-        
+
+
+    def _get_switch_ports_to_switch(self):
+        def _handler(**kwargs):
+            change_mac = kwargs['change_mac']
+            ip_switch  = kwargs['ip_switch']
+            port       = kwargs['port']
+
+            if len(change_mac & self.all_mac_switches) != 0:
+                self.switches[ip_switch]['ports'][port]['is_switch'] = True
+                switch_ports_to_switch[ip_switch] = self.switches[ip_switch]
+
+            change_mac.difference_update(final_mac_without_mac_switches)
+
+        final_mac_without_mac_switches = self.get_final_mac()
+        final_mac_without_mac_switches.difference_update(self.all_mac_switches)
+
+        switch_ports_to_switch = {}
+
+        self._foreach_switches(_handler)
+
+        return switch_ports_to_switch
+
+    
+
+    def test_print(self):
+        def _handler(**kwargs):
+
+            ip_switch    = kwargs['ip_switch']
+            port         = kwargs['port']
+            mac_swithces = kwargs['mac_swithces']
+            init_mac     = kwargs['init_mac']
+            change_mac   = kwargs['change_mac']
+
+            if len(change_mac) == 0:
+                return
+
+            print('ip: %15s, port: %3d, count mac_swithces: %3d, count init_mac: %4d, count change_mac: %4d, is_switch: %s' % (
+                ip_switch, port, 
+                len(mac_swithces), 
+                len(init_mac), 
+                len(change_mac), 
+                self.switches[ip_switch]['ports'][port].get('is_switch', False)))
+         
+        self._foreach_switches(_handler, switches=self.switch_ports_to_switch)
+
 
 if __name__ == "__main__":
 
@@ -205,11 +253,17 @@ if __name__ == "__main__":
     }
 
     switch = MonitoringSwitches(cred)
+
+    switch.switch_ports_to_switch = switch._get_switch_ports_to_switch()
+    switch.test_print()
+
+    a = 1
     
-    switch.clear_final_mac_of_ports()
+    #switch.clear_final_mac_of_ports()
+    #switch.clear_all_mac_switches_of_ports()
     
-    print(switch.get_tree_switch_nodes())
-    print(switch.get_tree_switch_edges())
+    #print(switch.get_tree_switch_nodes())
+    #print(switch.get_tree_switch_edges())
 
     #switch.print_count()
 
