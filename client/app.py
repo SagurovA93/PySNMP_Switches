@@ -12,7 +12,6 @@ cred = {
     }
 
     
-
 @app.route('/')
 def maps():
     switchs = MonitoringSwitches(cred)
