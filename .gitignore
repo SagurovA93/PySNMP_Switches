@@ -1,6 +1,7 @@
 .idea/
 .vscode/
 venv/
+__pycache__/
 test3.py
 test.*
 Async_Py_Snmp.py
