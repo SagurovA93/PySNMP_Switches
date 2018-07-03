@@ -308,7 +308,6 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
     for switch in switches:
 
         switch_id = switch['switch id']
-        switch_ip = switch['ip address']
         switch_uptime = switch['switch uptime']
         switch_descr = switch['switch description']
         switch_vlans = switch['vlans']
