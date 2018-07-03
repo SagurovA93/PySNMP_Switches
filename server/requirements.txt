@@ -1,0 +1,2 @@
+pysnmp==4.4.4
+PyMySQL==0.9.1
