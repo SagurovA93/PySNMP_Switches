@@ -17,6 +17,6 @@ def maps():
     switchs = MonitoringSwitches(cred)
 
     nodes = switchs.get_tree_switch_nodes()
-    edges = switchs.get_tree_switch_edges()
+    edges = switchs.get_JSON_tree_switch_edges()
 
     return render_template('maps.html', nodes=nodes, edges=edges)

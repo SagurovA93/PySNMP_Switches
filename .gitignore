@@ -1,5 +1,4 @@
 .idea/
-.vscode/
 venv/
 __pycache__/
 test3.py

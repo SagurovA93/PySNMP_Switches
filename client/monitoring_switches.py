@@ -32,7 +32,7 @@ class MonitoringSwitches:
             INNER JOIN ports using(id_switches)
             INNER JOIN FDB_tables using(id_ports)
             INNER JOIN requests using(id_requests)
-            WHERE requests.DATE = (SELECT MAX(requests.DATE) FROM requests)
+            WHERE requests.DATE = '2018-07-03 16:02:54'#(SELECT MAX(requests.DATE) FROM requests)
         '''
         cursor.execute(query_all_switches)
         data =  cursor.fetchall()
@@ -60,19 +60,22 @@ class MonitoringSwitches:
             INNER JOIN ports using(id_ports)
             INNER JOIN switches using(id_switches)
             INNER JOIN requests using(id_requests)
-            WHERE requests.DATE = (SELECT MAX(requests.DATE) FROM requests);
+            WHERE requests.DATE = '2018-07-03 16:02:54'#(SELECT MAX(requests.DATE) FROM requests);
         '''
         cursor.execute(query_all_switches)
         data =  cursor.fetchall()
 
         for switch in data:
             id_switches, ip, mac = switch
+
             if self.switches.get(ip) is None:
                 self.switches[ip] = {}
                 self.switches[ip]['id_switches'] = id_switches
                 print(colored("ERROR: нет портов у %s"%(ip), 'red'))
             if self.switches[ip].get('mac') is None:
                 self.switches[ip]['mac'] = set()
+            if mac == '00:00:00:00:00:00':
+                continue
             self.switches[ip]['mac'].add(mac.upper())
 
 
@@ -115,11 +118,12 @@ class MonitoringSwitches:
 
     def _get_switch_to_switch(self):
         def _handler(**kwargs):
-            change_mac = kwargs['change_mac']
-            ip_switch  = kwargs['ip_switch']
-            port       = kwargs['port']
+            change_mac   = kwargs['change_mac']
+            mac_swithces = kwargs['mac_swithces']
+            ip_switch    = kwargs['ip_switch']
+            port         = kwargs['port']
 
-            if len(change_mac & self.all_mac_switches) != 0:
+            if (len(change_mac & self.all_mac_switches) != 0) and change_mac.isdisjoint(mac_swithces):
                 self.switches[ip_switch]['ports'][port]['is_switch'] = True
                 if switch_to_switch.get(ip_switch) is None:
                     switch_to_switch[ip_switch]                = {}
@@ -218,34 +222,89 @@ class MonitoringSwitches:
     def get_tree_switch_edges(self):
         def _handler(**kwargs):
             def _find_edge(**kwargs):
-                change_mac = kwargs['change_mac']
-                ip_switch  = kwargs['ip_switch']
-                id_switch  = kwargs['id_switches']
-                port  = kwargs['port']
-                _ip_switch
-                _port
+                change_mac  = kwargs['change_mac']
+                ip_switch    = kwargs['ip_switch']
+                id_switch    = kwargs['id_switches']
+                mac_swithces = kwargs['mac_swithces']
+                port         = kwargs['port']
 
-                if (change_mac.isdisjoint(self.all_mac_switches - _mac_swithces)) :
+                self
+
+                if (change_mac.isdisjoint(_subtraction_mac)) :
+                    
+                    flag = True
+                    if len(_change_mac.intersection(mac_swithces)) != 0 :
+                        flag = True
+                    else:
+                        flag = False
+
                     edges.append({
                         'from'  : _id_switch,
                         'to'    : id_switch,
                         'title' : '%s(%s)-%s(%d)'%(_ip_switch, _port, ip_switch, port),
                     })
+                
+                    set_mac_final_switches.update(_mac_swithces)
+                    if dict_port_final_switches.get(ip_switch) is None:
+                        dict_port_final_switches[ip_switch] = set()
+                    dict_port_final_switches[ip_switch].add(port)
+                    set_ip_final_switches.add(_ip_switch)
+                    
 
             ports = kwargs['ports']
             if len(ports) == 1:
                 _ip_switch    = kwargs['ip_switch']
-                _id_switch  = kwargs['id_switches']
+                _id_switch    = kwargs['id_switches']
                 _port         = kwargs['port']
                 _mac_swithces = kwargs['mac_swithces']
+                _change_mac   = kwargs['change_mac']
+
+                _subtraction_mac = self.all_mac_switches - _mac_swithces
 
                 self._foreach_switches(_find_edge, switches=self.switch_to_switch)
 
+        
+        def _delete_final_switches():
+            def _delete_port():
+                for ip in dict_port_final_switches:
+                    for port in dict_port_final_switches[ip]:
+                        self.switch_to_switch[ip]['ports'].pop(port)
+
+
+            def _delete_switches():
+                for ip in set_ip_final_switches:
+                    self.switch_to_switch.pop(ip)
+
+
+            def _delete_mac_switches(**kwargs):
+                change_mac = kwargs['change_mac']
+                change_mac = change_mac - set_mac_final_switches
+
+            _delete_port()
+            _delete_switches()
+            self._foreach_switches(_delete_mac_switches, switches=self.switch_to_switch)
+
+            self.all_mac_switches = self.all_mac_switches - set_mac_final_switches
+
+
         edges = []
+        set_ip_final_switches = set()
+        set_mac_final_switches = set()
+        dict_port_final_switches = {}
 
         self._foreach_switches(_handler, switches=self.switch_to_switch)
 
-        return json.dumps(edges)
+        _delete_final_switches()
+
+        if len(set_ip_final_switches) == 0:
+            return edges
+        
+        edges.extend(self.get_tree_switch_edges())
+
+        return edges
+
+    def get_JSON_tree_switch_edges(self):
+        return json.dumps(self.get_tree_switch_edges())
 
 
 if __name__ == "__main__":
