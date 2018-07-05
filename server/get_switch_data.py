@@ -23,11 +23,12 @@ def snmp_walk_2c(community, ip, port, oid ):
                               lexicographicMode=False):
 
         if errorIndication:
-            print(errorIndication)
+            print(errorIndication, ip)
             break
+
         elif errorStatus:
             print('%s at %s' % (errorStatus.prettyPrint(),
-                                errorIndex and varBinds[int(errorIndex) - 1][0] or '?'))
+                                errorIndex and varBinds[int(errorIndex) - 1][0] or '?'), ip)
             break
         else:
             for varBind in varBinds:
@@ -42,31 +43,38 @@ def get_switch_data(community, switch_list, port):
     for ip in switch_list:
 
         raw_interfaces = []
+        error_occured = False
 
         for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
-                              UdpTransportTarget((ip, port), timeout=2),
+                              UdpTransportTarget((ip, port), timeout=1),
                               ContextData(),
                               # Статистика интерфейсов
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.1')),  # Номер порта IF-MIB::ifIndex.X
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.2')),
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.5')),  # Скорость порта IF-MIB::ifSpeed.X
-                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6')),# Мак адрес порта IF-MIB::ifPhysAddress.X '1.3.6.1.2.1.2.2.1.6'
-                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.8')),# Оперативный статус IF-MIB::ifOperStatus.X
-                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.9')),# Последнее ищменение состояния IF-MIB::ifLastChange.X
-                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.10')),# Входящие октеты IF-MIB::ifInOctets.X
+                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.6')),  # Мак адрес порта IF-MIB::ifPhysAddress.X '1.3.6.1.2.1.2.2.1.6'
+                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.8')),  # Оперативный статус IF-MIB::ifOperStatus.X
+                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.9')),  # Последнее ищменение состояния IF-MIB::ifLastChange.X
+                              ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.10')), # Входящие октеты IF-MIB::ifInOctets.X
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.16')),
                               lexicographicMode=False):
 
             if errorIndication:
-                print(errorIndication)
+                print(errorIndication, ip )
+                error_occured = True
+                break
 
             elif errorStatus:
                 print('%s at %s' % (errorStatus.prettyPrint(),
-                                errorIndex and varBinds[int(errorIndex) - 1][0] or '?'))
+                                errorIndex and varBinds[int(errorIndex) - 1][0] or '?'), ip)
+                error_occured = True
                 break
             else:
                 raw_interfaces.append([x.prettyPrint() for x in varBinds])
+
+        if error_occured:
+            continue
 
         raw_description = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.1.1')
         raw_switch_uptime = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.1.3') #1.3.6.1.2.1.1.3
@@ -308,11 +316,14 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
     for switch in switches:
 
         switch_id = switch['switch id']
+        switch_ip = switch['ip address']
         switch_uptime = switch['switch uptime']
         switch_descr = switch['switch description']
         switch_vlans = switch['vlans']
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
+
+        print(switch_ip)
 
         vlan_tuples = []
         for vlan in sorted(switch_vlans):
