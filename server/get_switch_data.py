@@ -9,7 +9,7 @@ import datetime
 from pysnmp.hlapi import *
 
 
-def snmp_walk_2c(community, ip, port, oid ):
+def snmp_walk_2c(community, ip, port, oid):
     raw_answer = []
     object_type = ObjectType(ObjectIdentity(oid))
     for (errorIndication,
@@ -332,12 +332,20 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
 
         interface_tuples = []
         for interface in sorted(switch_if):
-            tupe = (switch_if[interface]['port id'], switch_if[interface]['interface description'],
+            try:
+                tupe = (switch_if[interface]['port id'], switch_if[interface]['interface description'],
                     switch_if[interface]['interface speed'], switch_if[interface]['interface mac'],
                     switch_if[interface]['interface status'], switch_if[interface]['interface uptime'],
                     switch_if[interface]['interface in Bytes'], switch_if[interface]['interface out Bytes'],
                     id_request)
-            interface_tuples.append(tupe)
+
+                interface_tuples.append(tupe)
+            except KeyError:
+                print('У свитча есть interface, которого нет в нашей БД', '\n',
+                      interface, '\n',
+                      switch_if[interface]
+                      )
+                continue
 
         fdb_tuples = []
         for fdb_string in sorted(switch_fdb):
