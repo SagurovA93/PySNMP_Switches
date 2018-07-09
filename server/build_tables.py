@@ -41,8 +41,11 @@ def get_switch_ports(community,ip,port):
 def insert_data_db(ip_database, username, password, db_name, sql):
     db = pymysql.connect(ip_database, username, password, db_name, charset='utf8')
     cursor = db.cursor()
-    cursor.execute(sql)
-    db.commit()
+    try:
+        cursor.execute(sql)
+        db.commit()
+    except pymysql.err.IntegrityError as err_mysql_integr:
+        print('Ошибка при добавлении свитча', err_mysql_integr)
     #Закрываем подключение
     db.close()
 
@@ -77,7 +80,7 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     TEST = ['10.4.0.201']
-    IP_ADDRESS_LIST = N16_SWITCHES
+    IP_ADDRESS_LIST = ['10.4.0.1']
 
     for IP_ADDRESS in IP_ADDRESS_LIST:
         SWITCH_FDQN = socket.gethostbyaddr(IP_ADDRESS)[0]
