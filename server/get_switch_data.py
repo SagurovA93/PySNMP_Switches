@@ -20,6 +20,7 @@ def snmp_walk_2c(community, ip, port, oid):
                               UdpTransportTarget((ip, port), timeout=1),
                               ContextData(),
                               object_type,
+                              ignoreNonIncreasingOid=True,
                               lexicographicMode=False):
 
         if errorIndication:
@@ -47,7 +48,7 @@ def get_switch_data(community, switch_list, port):
 
         for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
-                              UdpTransportTarget((ip, port), timeout=1),
+                              UdpTransportTarget((ip, port), timeout=3),
                               ContextData(),
                               # Статистика интерфейсов
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.1')),  # Номер порта IF-MIB::ifIndex.X
@@ -81,6 +82,7 @@ def get_switch_data(community, switch_list, port):
         raw_vlan_list = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.17.7.1.2.1.1.2')
         raw_fdb = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.17.7.1.2.2.1.2')
         raw_arp = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.4.22.1.2') #! IP-MIB.ipNetToMediaPhysAddress
+        raw_lldp = snmp_walk_2c(community, ip, port, '1.0.8802.1.1.2.1.4.1.1')
         #1.3.6.1.4.1.171.11.55.2.2.1.4.3    - Загрузка CPU за пять минут на DGS-3312SR
         #1.3.6.1.4.1.171.12.1.1.6.3         - Загрузка CPU за пять минут на DGS-3420-52T
         switch = {
@@ -90,7 +92,8 @@ def get_switch_data(community, switch_list, port):
             'raw interfaces': raw_interfaces,
             'raw vlan list': raw_vlan_list,
             'raw fdb': raw_fdb,
-            'raw arp': raw_arp
+            'raw arp': raw_arp,
+            'raw lldp': raw_lldp
         }
         switches.append(switch)
 
@@ -177,6 +180,7 @@ def parse_switch_data(switch_data):
 
     switches = []
     for switch in switch_data:
+
         switch_ip = switch['ip address']
 
         interfaces = {}
@@ -184,6 +188,9 @@ def parse_switch_data(switch_data):
         arp_table = {}
         fdb_table = {}
         raw_interfaces = switch['raw interfaces']
+
+        print(switch_ip, switch['raw lldp'])
+
         for interface in raw_interfaces:
 
             if_number = interface[0].split(' = ')[1]
@@ -418,7 +425,7 @@ if __name__ == "__main__":
         'host': '10.4.5.54',
         'user': 'pysnmp',
         'passwd': '123456',
-        'db': 'switch_snmp',
+        'db': 'switch_snmp_lldp_t1',
         'charset': 'utf8',
     }
 
@@ -445,7 +452,7 @@ if __name__ == "__main__":
     end2 = time.time()
 
     start3 = time.time()
-    insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches, id_request)
+    #insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches, id_request)
     end3 = time.time()
 
     print('\n',
