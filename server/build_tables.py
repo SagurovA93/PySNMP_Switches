@@ -9,6 +9,7 @@ from pysnmp.hlapi import *
 def get_switch_ports(community,ip,port):
     ports = []
     raw_answers = []
+    error_status = False
     for (errorIndication,
          errorStatus,
          errorIndex,
@@ -21,21 +22,27 @@ def get_switch_ports(community,ip,port):
 
         if errorIndication:
             print(errorIndication)
-            sys.exit(1)
+            error_status = True
+            break
 
         elif errorStatus:
             print('%s at %s' % (errorStatus.prettyPrint(),
                                 errorIndex and varBinds[int(errorIndex) - 1][0] or '?'))
+            error_status = True
             break
         else:
             raw_answers.append([x.prettyPrint() for x in varBinds])
 
-    length = len(raw_answers[0])
+    try:
+        length = len(raw_answers[0])
+    except IndexError:
+        return ports, error_status
+
     for answer in raw_answers:
         for i in range(0,length):
             ports.append(answer[i].split(' = ')[1])
 
-    return ports
+    return ports, error_status
 
 
 def insert_data_db(ip_database, username, password, db_name, sql):
@@ -87,19 +94,28 @@ if __name__ == "__main__":
     IP_ADDRESS_LIST = SWITCHES_IZ2
 
     for IP_ADDRESS in IP_ADDRESS_LIST:
-        SWITCH_FDQN = socket.gethostbyaddr(IP_ADDRESS)[0]
+        try:
+            SWITCH_FDQN = socket.gethostbyaddr(IP_ADDRESS)[0]
+        except socket.herror: # Если невозможно разрешить FDQN указанного адреса - SWITCH_FDQN = IP_ADDRESS
+            SWITCH_FDQN = IP_ADDRESS
+
         print(SWITCH_FDQN)
-        SWITCH_PORTS = get_switch_ports(COMMUNITY,IP_ADDRESS,SNMP_PORT)
-        SQL_INSERT_SW = """INSERT INTO switches(ip, FDQN) values ('%(ip_address)s', '%(switch_fdqn)s')""" % {
-            "ip_address": IP_ADDRESS, "switch_fdqn": SWITCH_FDQN}
-        insert_data_db(cred['host'], cred['user'], cred['passwd'], cred['db'], SQL_INSERT_SW)
 
-        SQL_GET_SW_ID = """SELECT id_switches FROM switches where switches.ip = '%(ip_address)s'""" % {
-            "ip_address": IP_ADDRESS}
-        ID_SWITCH = get_data_db(cred['host'], cred['user'], cred['passwd'], cred['db'], SQL_GET_SW_ID)
+        SWITCH_PORTS, error_status = get_switch_ports(COMMUNITY,IP_ADDRESS,SNMP_PORT)
 
-        for port in SWITCH_PORTS:
-            PORT_NUMBER = port
-            SQL_INSERT_PORT = """INSERT INTO ports(port_number, id_switches) values ('%(port_number)s', '%(id_switches)s')""" % {
-                "port_number": PORT_NUMBER, "id_switches": ID_SWITCH}
-            insert_data_db(cred['host'], cred['user'], cred['passwd'], cred['db'], SQL_INSERT_PORT)
+        if error_status:
+            continue
+        else:
+            SQL_INSERT_SW = """INSERT INTO switches(ip, FDQN) values ('%(ip_address)s', '%(switch_fdqn)s')""" % {
+                "ip_address": IP_ADDRESS, "switch_fdqn": SWITCH_FDQN}
+            insert_data_db(cred['host'], cred['user'], cred['passwd'], cred['db'], SQL_INSERT_SW)
+
+            SQL_GET_SW_ID = """SELECT id_switches FROM switches where switches.ip = '%(ip_address)s'""" % {
+                "ip_address": IP_ADDRESS}
+            ID_SWITCH = get_data_db(cred['host'], cred['user'], cred['passwd'], cred['db'], SQL_GET_SW_ID)
+
+            for port in SWITCH_PORTS:
+                PORT_NUMBER = port
+                SQL_INSERT_PORT = """INSERT INTO ports(port_number, id_switches) values ('%(port_number)s', '%(id_switches)s')""" % {
+                    "port_number": PORT_NUMBER, "id_switches": ID_SWITCH}
+                insert_data_db(cred['host'], cred['user'], cred['passwd'], cred['db'], SQL_INSERT_PORT)
