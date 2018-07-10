@@ -17,7 +17,7 @@ def snmp_walk_2c(community, ip, port, oid):
          errorIndex,
          varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
-                              UdpTransportTarget((ip, port), timeout=1),
+                              UdpTransportTarget((ip, port), timeout=10),
                               ContextData(),
                               object_type,
                               ignoreNonIncreasingOid=True,
@@ -187,9 +187,46 @@ def parse_switch_data(switch_data):
         vlans = {}
         arp_table = {}
         fdb_table = {}
+        lldp_table = {}
         raw_interfaces = switch['raw interfaces']
+        raw_lldp = switch['raw lldp']
 
-        print(switch_ip, switch['raw lldp'])
+        for lldp_string in raw_lldp:
+            # iso.0.8802.1.1.2.1.4.1.1.5.xxx.N.x = MAC - N - норме порта
+            # iso.0.8802.1.1.2.1.4.1.1.7.xxx.N.x = Номер порта удаленного свитча N - норме порта
+            oid, value = lldp_string.split(' = ')
+
+            localPort_mac = re.findall('\.0\.8802\.1\.1\.2\.1\.4\.1\.1\.5\.', oid)
+            localPort_destPort = re.findall('\.0\.8802\.1\.1\.2\.1\.4\.1\.1\.7\.', oid)
+
+            if localPort_mac: # Определяю номер порта локального свитча и мак адрес удаленного свитча
+                localPort = re.findall('\.[0-9]{1,3}\.[0-9]{1,3}$', oid)[0].split('.')[1]
+                mac_dashStyle = re.findall('-', value)
+                mac_hexStyle = re.findall('0x', value)
+
+                if mac_hexStyle:
+                    mac = value[2:4] + ':' + value[4:6] + ':' + value[6:8] + ':' \
+                     + value[8:10] + ':' + value[10:12] + ':' + value[12:14]
+                    mac = mac.upper()
+                elif mac_dashStyle:
+                    mac_dash = value.upper().split('-')
+                    mac = mac_dash[0] + ':' + mac_dash[1] + ':' + mac_dash[2] + ':' \
+                            + mac_dash[3] + ':' + mac_dash[4] + ':' + mac_dash[5]
+                else:
+                    mac = value
+                    print('MAC адрес не распознан', mac)
+
+                lldp_table[int(localPort)] = {'host mac': mac}
+
+
+            if localPort_destPort: # Определяю имя порта удаленного свитча
+                localPort = re.findall('\.[0-9]{1,3}\.[0-9]{1,3}$', oid)[0].split('.')[1]
+                host_port = lldp_table[int(localPort)]['host mac']
+
+                lldp_table[int(localPort)] = {
+                    'host port': value,
+                    'host mac': host_port
+                                              }
 
         for interface in raw_interfaces:
 
@@ -265,6 +302,7 @@ def parse_switch_data(switch_data):
             'ip address': switch_ip,
             'switch description': switch_description,
             'switch uptime': switch_uptime,
+            'lldb table': lldp_table,
             'interfaces': interfaces,
             'vlans': vlans,
             'fdb table': fdb_table,
@@ -444,11 +482,14 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], SWITCHES_IZ2, snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], ['10.4.0.200'], snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
     switches, id_request = parse_switch_data(switch_raw)
+    for switch in switches:
+        for key in switch:
+            print(key, switch[key])
     end2 = time.time()
 
     start3 = time.time()
