@@ -192,8 +192,7 @@ def parse_switch_data(switch_data):
         raw_lldp = switch['raw lldp']
 
         for lldp_string in raw_lldp:
-            # iso.0.8802.1.1.2.1.4.1.1.5.xxx.N.x = MAC - N - норме порта
-            # iso.0.8802.1.1.2.1.4.1.1.7.xxx.N.x = Номер порта удаленного свитча N - норме порта
+
             oid, value = lldp_string.split(' = ')
 
             localPort_mac = re.findall('\.0\.8802\.1\.1\.2\.1\.4\.1\.1\.5\.', oid)
@@ -216,16 +215,16 @@ def parse_switch_data(switch_data):
                     mac = value
                     print('MAC адрес не распознан', mac)
 
-                lldp_table[int(localPort)] = {'host mac': mac}
+                lldp_table[int(localPort)] = {'neighbor mac': mac}
 
 
             if localPort_destPort: # Определяю имя порта удаленного свитча
                 localPort = re.findall('\.[0-9]{1,3}\.[0-9]{1,3}$', oid)[0].split('.')[1]
-                host_port = lldp_table[int(localPort)]['host mac']
+                host_port = lldp_table[int(localPort)]['neighbor mac']
 
                 lldp_table[int(localPort)] = {
-                    'host port': value,
-                    'host mac': host_port
+                    'neighbor port': value,
+                    'neighbor mac': host_port
                                               }
 
         for interface in raw_interfaces:
@@ -253,6 +252,7 @@ def parse_switch_data(switch_data):
                 }
 
         raw_vlan = switch['raw vlan list']
+
         for vlan_string in raw_vlan:
             vid, hosts_amount = vlan_string.split(' = ')
             vid = vid.split('SNMPv2-SMI::mib-2.17.7.1.2.1.1.2.')[1]
@@ -261,6 +261,7 @@ def parse_switch_data(switch_data):
             }
 
         raw_arp = switch['raw arp']
+
         for arp_string in raw_arp:
             host_ip, host_mac = arp_string.split(' = ')
             host_ip = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', host_ip)[0]
@@ -272,6 +273,7 @@ def parse_switch_data(switch_data):
                 }
 
         raw_fdb = switch['raw fdb']
+
         for fdb_string in raw_fdb:
             mac, port = fdb_string.split(' = ')
             # Оптимизировать! Использовать либо одну регулярку либо еще че придумать
@@ -302,7 +304,7 @@ def parse_switch_data(switch_data):
             'ip address': switch_ip,
             'switch description': switch_description,
             'switch uptime': switch_uptime,
-            'lldb table': lldp_table,
+            'lldp table': lldp_table,
             'interfaces': interfaces,
             'vlans': vlans,
             'fdb table': fdb_table,
@@ -320,6 +322,7 @@ def parse_switch_data(switch_data):
         switch_ip = switch['ip address']
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
+        switch_lldp = switch['lldp table']
 
         for switch_tb in switches_table: # Получаю id switch для каждого свитча
             if switch_tb['ip'] == switch_ip:
@@ -333,11 +336,17 @@ def parse_switch_data(switch_data):
 
         for port in switch_ports:  # Добавляю 'port id' для каждого порта из словарей interfaces и fdb_table
             id_ports, port_number = port['id_ports'], port['port_number'] # id и номер порта  конкретного свитча
+
             try:
                 switch_if[int(port_number)]['port id'] = id_ports   # Добавляю ключ 'port id' во временный словарь для интерфейсов свитча
 
                 try:    # Добавляю ключ 'port id' во временный словарь для FDB таблицы
                     switch_fdb[int(port_number)]['port id'] = id_ports
+                except KeyError:
+                    continue
+
+                try:    # Добавляю ключ 'port id' во временный словарь для LLDP таблицы
+                    switch_lldp[int(port_number)]['port id'] = id_ports
                 except KeyError:
                     continue
 
@@ -350,6 +359,7 @@ def parse_switch_data(switch_data):
                 continue
             except:
                 print('Произошла непредвиденная ошибка, при обработке портов из базы')
+
         switch['interfaces'] = switch_if
         switch['fdb table'] = switch_fdb
 
@@ -367,6 +377,7 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
         switch_vlans = switch['vlans']
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
+        switch_lldp = switch['lldp table']
 
         print(switch_ip)
 
@@ -402,50 +413,51 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
             except KeyError:
                 print('Нет id port: ', fdb_string, switch_fdb[fdb_string])
 
+        lldp_tuples = []
+        for port_number in sorted(switch_lldp):
+            try:
+                lldp_tuples.append((switch_lldp[port_number]['port id'], switch_lldp[port_number]['neighbor mac'], switch_lldp[port_number]['neighbor port'], id_request))
+            except KeyError as error_key:
+                print(switch_id, error_key)
+
         # Подключиться к базе данных.
-        connection = pymysql.connect(host=db_address,
-                                         user=user,
-                                         password=password,
-                                         db=db_name,
-                                         charset=charset,
-                                         cursorclass=pymysql.cursors.DictCursor)
+        connection = pymysql.connect(host=db_address, user=user, password=password, db=db_name,
+                                     charset=charset, cursorclass=pymysql.cursors.DictCursor)
+
         try:
             with connection.cursor() as cursor:
                 # statistics_switch
-                # 1. Записываю инфомацию в таблицу statistics_switch: id_switches, id_requests, switch_description, switch_uptime
-                # 2. Записываю в таблицу vlan_table: VID, host_amount, id_switches, id_requests
+                insert_statistics_switch = """ 
+                    INSERT statistics_switch(id_switches, id_requests, switch_description, switch_uptime) 
+                    values('%(id_switches)s', '%(id_requests)s', '%(switch_description)s', '%(switch_uptime)s')""" \
+                    % {"id_switches": switch_id, "id_requests": id_request, "switch_description": switch_descr,
+                       "switch_uptime": switch_uptime}
 
-                insert_statistics_switch = """ INSERT statistics_switch(id_switches, id_requests, 
-                                                                        switch_description, switch_uptime) 
-                                                values('%(id_switches)s', '%(id_requests)s', 
-                                                        '%(switch_description)s', '%(switch_uptime)s')""" \
-                                                % {"id_switches": switch_id, "id_requests": id_request,
-                                                   "switch_description": switch_descr, "switch_uptime": switch_uptime}
-
-                insert_vlan_table = """ INSERT vlan_table(VID, host_amount, id_switches, id_requests ) 
-                                        values(%s, %s, %s, %s) """
+                insert_vlan_table = """ 
+                    INSERT vlan_table(VID, host_amount, id_switches, id_requests ) 
+                        values(%s, %s, %s, %s) """
 
                 # statistics_ports
-                # 1. ip_ports, port_description, port_speed,
-                #    port_mac, port_status, port_uptime, port_in_octets,
-                #    port_out_octets, id_requests
-
-                insert_statistics_ports = """ INSERT statistics_ports(id_ports, port_description,
-                                                                      port_speed, port_mac, 
-                                                                      port_status, port_uptime,
-                                                                      port_in_octets, port_out_octets, 
-                                                                      id_requests) 
-                                                                      values(%s, %s, %s, %s, %s, %s, %s, %s, %s) """
+                insert_statistics_ports = """ 
+                    INSERT statistics_ports(id_ports, port_description, port_speed, port_mac, 
+                        port_status, port_uptime, port_in_octets, port_out_octets, id_requests) 
+                    values(%s, %s, %s, %s, %s, %s, %s, %s, %s) """
 
                 # FDB_tables
-                # 1. id_requests, id_ports, mac_address, VID, ip_address
-                insert_fdb_tables = """ INSERT FDB_tables(id_requests, id_ports, mac_address, VID, ip_address) 
-                                                                                        values(%s, %s, %s, %s, %s)"""
+                insert_fdb_tables = """ 
+                    INSERT FDB_tables(id_requests, id_ports, mac_address, VID, ip_address) 
+                    values(%s, %s, %s, %s, %s)"""
+
+                #LLDP table
+                insert_lldp_table = """ 
+                    INSERT LLDP_table(id_ports, neighbor_mac, neighbor_port, id_requests) 
+                    values(%s, %s, %s, %s)"""
 
                 cursor.execute(insert_statistics_switch)
                 cursor.executemany(insert_vlan_table, vlan_tuples)
                 cursor.executemany(insert_statistics_ports, interface_tuples)
                 cursor.executemany(insert_fdb_tables, fdb_tuples)
+                cursor.executemany(insert_lldp_table, lldp_tuples)
 
         finally:
             connection.commit() # Записать изменения в БД
@@ -482,18 +494,15 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], ['10.4.0.200'], snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], SWITCHES_IZ2, snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
     switches, id_request = parse_switch_data(switch_raw)
-    for switch in switches:
-        for key in switch:
-            print(key, switch[key])
     end2 = time.time()
 
     start3 = time.time()
-    #insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches, id_request)
+    insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches, id_request)
     end3 = time.time()
 
     print('\n',
