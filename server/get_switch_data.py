@@ -17,9 +17,10 @@ def snmp_walk_2c(community, ip, port, oid):
          errorIndex,
          varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
-                              UdpTransportTarget((ip, port), timeout=1),
+                              UdpTransportTarget((ip, port), timeout=10),
                               ContextData(),
                               object_type,
+                              ignoreNonIncreasingOid=True,
                               lexicographicMode=False):
 
         if errorIndication:
@@ -47,7 +48,7 @@ def get_switch_data(community, switch_list, port):
 
         for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(SnmpEngine(),
                               CommunityData(community, mpModel=1),
-                              UdpTransportTarget((ip, port), timeout=1),
+                              UdpTransportTarget((ip, port), timeout=3),
                               ContextData(),
                               # Статистика интерфейсов
                               ObjectType(ObjectIdentity('1.3.6.1.2.1.2.2.1.1')),  # Номер порта IF-MIB::ifIndex.X
@@ -81,6 +82,7 @@ def get_switch_data(community, switch_list, port):
         raw_vlan_list = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.17.7.1.2.1.1.2')
         raw_fdb = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.17.7.1.2.2.1.2')
         raw_arp = snmp_walk_2c(community, ip, port, '1.3.6.1.2.1.4.22.1.2') #! IP-MIB.ipNetToMediaPhysAddress
+        raw_lldp = snmp_walk_2c(community, ip, port, '1.0.8802.1.1.2.1.4.1.1')
         #1.3.6.1.4.1.171.11.55.2.2.1.4.3    - Загрузка CPU за пять минут на DGS-3312SR
         #1.3.6.1.4.1.171.12.1.1.6.3         - Загрузка CPU за пять минут на DGS-3420-52T
         switch = {
@@ -90,7 +92,8 @@ def get_switch_data(community, switch_list, port):
             'raw interfaces': raw_interfaces,
             'raw vlan list': raw_vlan_list,
             'raw fdb': raw_fdb,
-            'raw arp': raw_arp
+            'raw arp': raw_arp,
+            'raw lldp': raw_lldp
         }
         switches.append(switch)
 
@@ -177,13 +180,53 @@ def parse_switch_data(switch_data):
 
     switches = []
     for switch in switch_data:
+
         switch_ip = switch['ip address']
 
         interfaces = {}
         vlans = {}
         arp_table = {}
         fdb_table = {}
+        lldp_table = {}
         raw_interfaces = switch['raw interfaces']
+        raw_lldp = switch['raw lldp']
+
+        for lldp_string in raw_lldp:
+
+            oid, value = lldp_string.split(' = ')
+
+            localPort_mac = re.findall('\.0\.8802\.1\.1\.2\.1\.4\.1\.1\.5\.', oid)
+            localPort_destPort = re.findall('\.0\.8802\.1\.1\.2\.1\.4\.1\.1\.7\.', oid)
+
+            if localPort_mac: # Определяю номер порта локального свитча и мак адрес удаленного свитча
+                localPort = re.findall('\.[0-9]{1,3}\.[0-9]{1,3}$', oid)[0].split('.')[1]
+                mac_dashStyle = re.findall('-', value)
+                mac_hexStyle = re.findall('0x', value)
+
+                if mac_hexStyle:
+                    mac = value[2:4] + ':' + value[4:6] + ':' + value[6:8] + ':' \
+                     + value[8:10] + ':' + value[10:12] + ':' + value[12:14]
+                    mac = mac.upper()
+                elif mac_dashStyle:
+                    mac_dash = value.upper().split('-')
+                    mac = mac_dash[0] + ':' + mac_dash[1] + ':' + mac_dash[2] + ':' \
+                            + mac_dash[3] + ':' + mac_dash[4] + ':' + mac_dash[5]
+                else:
+                    mac = value
+                    print('MAC адрес не распознан', mac)
+
+                lldp_table[int(localPort)] = {'neighbor mac': mac}
+
+
+            if localPort_destPort: # Определяю имя порта удаленного свитча
+                localPort = re.findall('\.[0-9]{1,3}\.[0-9]{1,3}$', oid)[0].split('.')[1]
+                host_port = lldp_table[int(localPort)]['neighbor mac']
+
+                lldp_table[int(localPort)] = {
+                    'neighbor port': value,
+                    'neighbor mac': host_port
+                                              }
+
         for interface in raw_interfaces:
 
             if_number = interface[0].split(' = ')[1]
@@ -209,6 +252,7 @@ def parse_switch_data(switch_data):
                 }
 
         raw_vlan = switch['raw vlan list']
+
         for vlan_string in raw_vlan:
             vid, hosts_amount = vlan_string.split(' = ')
             vid = vid.split('SNMPv2-SMI::mib-2.17.7.1.2.1.1.2.')[1]
@@ -217,6 +261,7 @@ def parse_switch_data(switch_data):
             }
 
         raw_arp = switch['raw arp']
+
         for arp_string in raw_arp:
             host_ip, host_mac = arp_string.split(' = ')
             host_ip = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', host_ip)[0]
@@ -228,6 +273,7 @@ def parse_switch_data(switch_data):
                 }
 
         raw_fdb = switch['raw fdb']
+
         for fdb_string in raw_fdb:
             mac, port = fdb_string.split(' = ')
             # Оптимизировать! Использовать либо одну регулярку либо еще че придумать
@@ -258,6 +304,7 @@ def parse_switch_data(switch_data):
             'ip address': switch_ip,
             'switch description': switch_description,
             'switch uptime': switch_uptime,
+            'lldp table': lldp_table,
             'interfaces': interfaces,
             'vlans': vlans,
             'fdb table': fdb_table,
@@ -275,6 +322,7 @@ def parse_switch_data(switch_data):
         switch_ip = switch['ip address']
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
+        switch_lldp = switch['lldp table']
 
         for switch_tb in switches_table: # Получаю id switch для каждого свитча
             if switch_tb['ip'] == switch_ip:
@@ -288,11 +336,17 @@ def parse_switch_data(switch_data):
 
         for port in switch_ports:  # Добавляю 'port id' для каждого порта из словарей interfaces и fdb_table
             id_ports, port_number = port['id_ports'], port['port_number'] # id и номер порта  конкретного свитча
+
             try:
                 switch_if[int(port_number)]['port id'] = id_ports   # Добавляю ключ 'port id' во временный словарь для интерфейсов свитча
 
                 try:    # Добавляю ключ 'port id' во временный словарь для FDB таблицы
                     switch_fdb[int(port_number)]['port id'] = id_ports
+                except KeyError:
+                    continue
+
+                try:    # Добавляю ключ 'port id' во временный словарь для LLDP таблицы
+                    switch_lldp[int(port_number)]['port id'] = id_ports
                 except KeyError:
                     continue
 
@@ -305,6 +359,7 @@ def parse_switch_data(switch_data):
                 continue
             except:
                 print('Произошла непредвиденная ошибка, при обработке портов из базы')
+
         switch['interfaces'] = switch_if
         switch['fdb table'] = switch_fdb
 
@@ -322,6 +377,7 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
         switch_vlans = switch['vlans']
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
+        switch_lldp = switch['lldp table']
 
         print(switch_ip)
 
@@ -357,50 +413,51 @@ def insert_db(db_address, user, password, db_name, charset, switches, id_request
             except KeyError:
                 print('Нет id port: ', fdb_string, switch_fdb[fdb_string])
 
+        lldp_tuples = []
+        for port_number in sorted(switch_lldp):
+            try:
+                lldp_tuples.append((switch_lldp[port_number]['port id'], switch_lldp[port_number]['neighbor mac'], switch_lldp[port_number]['neighbor port'], id_request))
+            except KeyError as error_key:
+                print(switch_id, error_key)
+
         # Подключиться к базе данных.
-        connection = pymysql.connect(host=db_address,
-                                         user=user,
-                                         password=password,
-                                         db=db_name,
-                                         charset=charset,
-                                         cursorclass=pymysql.cursors.DictCursor)
+        connection = pymysql.connect(host=db_address, user=user, password=password, db=db_name,
+                                     charset=charset, cursorclass=pymysql.cursors.DictCursor)
+
         try:
             with connection.cursor() as cursor:
                 # statistics_switch
-                # 1. Записываю инфомацию в таблицу statistics_switch: id_switches, id_requests, switch_description, switch_uptime
-                # 2. Записываю в таблицу vlan_table: VID, host_amount, id_switches, id_requests
+                insert_statistics_switch = """ 
+                    INSERT statistics_switch(id_switches, id_requests, switch_description, switch_uptime) 
+                    values('%(id_switches)s', '%(id_requests)s', '%(switch_description)s', '%(switch_uptime)s')""" \
+                    % {"id_switches": switch_id, "id_requests": id_request, "switch_description": switch_descr,
+                       "switch_uptime": switch_uptime}
 
-                insert_statistics_switch = """ INSERT statistics_switch(id_switches, id_requests, 
-                                                                        switch_description, switch_uptime) 
-                                                values('%(id_switches)s', '%(id_requests)s', 
-                                                        '%(switch_description)s', '%(switch_uptime)s')""" \
-                                                % {"id_switches": switch_id, "id_requests": id_request,
-                                                   "switch_description": switch_descr, "switch_uptime": switch_uptime}
-
-                insert_vlan_table = """ INSERT vlan_table(VID, host_amount, id_switches, id_requests ) 
-                                        values(%s, %s, %s, %s) """
+                insert_vlan_table = """ 
+                    INSERT vlan_table(VID, host_amount, id_switches, id_requests ) 
+                        values(%s, %s, %s, %s) """
 
                 # statistics_ports
-                # 1. ip_ports, port_description, port_speed,
-                #    port_mac, port_status, port_uptime, port_in_octets,
-                #    port_out_octets, id_requests
-
-                insert_statistics_ports = """ INSERT statistics_ports(id_ports, port_description,
-                                                                      port_speed, port_mac, 
-                                                                      port_status, port_uptime,
-                                                                      port_in_octets, port_out_octets, 
-                                                                      id_requests) 
-                                                                      values(%s, %s, %s, %s, %s, %s, %s, %s, %s) """
+                insert_statistics_ports = """ 
+                    INSERT statistics_ports(id_ports, port_description, port_speed, port_mac, 
+                        port_status, port_uptime, port_in_octets, port_out_octets, id_requests) 
+                    values(%s, %s, %s, %s, %s, %s, %s, %s, %s) """
 
                 # FDB_tables
-                # 1. id_requests, id_ports, mac_address, VID, ip_address
-                insert_fdb_tables = """ INSERT FDB_tables(id_requests, id_ports, mac_address, VID, ip_address) 
-                                                                                        values(%s, %s, %s, %s, %s)"""
+                insert_fdb_tables = """ 
+                    INSERT FDB_tables(id_requests, id_ports, mac_address, VID, ip_address) 
+                    values(%s, %s, %s, %s, %s)"""
+
+                #LLDP table
+                insert_lldp_table = """ 
+                    INSERT LLDP_table(id_ports, neighbor_mac, neighbor_port, id_requests) 
+                    values(%s, %s, %s, %s)"""
 
                 cursor.execute(insert_statistics_switch)
                 cursor.executemany(insert_vlan_table, vlan_tuples)
                 cursor.executemany(insert_statistics_ports, interface_tuples)
                 cursor.executemany(insert_fdb_tables, fdb_tuples)
+                cursor.executemany(insert_lldp_table, lldp_tuples)
 
         finally:
             connection.commit() # Записать изменения в БД
@@ -418,7 +475,7 @@ if __name__ == "__main__":
         'host': '10.4.5.54',
         'user': 'pysnmp',
         'passwd': '123456',
-        'db': 'switch_snmp',
+        'db': 'switch_snmp_lldp_t1',
         'charset': 'utf8',
     }
 
