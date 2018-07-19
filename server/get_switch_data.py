@@ -334,7 +334,7 @@ def parse_switch_data(switch_data):
             switch['switch id']
 
         except KeyError:
-            print('Новый свитч в БД', 'Удаляю')
+            print('В БД нет такого свитча:', switch_ip, 'Удаляю')
             switches.remove(switch)
             break
 
@@ -503,7 +503,7 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], ['10.4.100.111'], snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], SWITCH_ABK, snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
