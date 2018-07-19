@@ -328,6 +328,15 @@ def parse_switch_data(switch_data):
             if switch_tb['ip'] == switch_ip:
                 id_switches = switch_tb['id_switches']
                 switch['switch id'] = id_switches # Добавляю id свитча в словарь свитча
+                break
+
+        try:
+            switch['switch id']
+
+        except KeyError:
+            print('Новый свитч в БД', 'Удаляю')
+            switches.remove(switch)
+            break
 
         switch_ports = []  # Выбираю только порты данного свитча из общей солянки
         for port in ports_table:
@@ -494,7 +503,7 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], SWITCHES_IZ2, snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], ['10.4.100.111'], snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
