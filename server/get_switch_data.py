@@ -106,41 +106,7 @@ def get_switch_data(community, switch_list, port):
     return switches
 
 
-def get_switch_table_db(db_address, user, password, db_name, charset):
-
-    # SQL - запросы
-    get_switches = "SELECT * FROM switches"
-    get_ports = "SELECT * FROM ports"
-
-    switches_table = []
-    ports_table = []
-
-    # Подключиться к базе данных.
-    try:
-        connection = pymysql.connect(host=db_address, user=user, password=password,
-            db=db_name, charset=charset, cursorclass=pymysql.cursors.DictCursor)
-
-        try:
-
-            with connection.cursor() as cursor:
-                # 1. Взять всю таблицу свитчей
-                cursor.execute(get_switches)
-                switches_table = cursor.fetchall()
-                # 2. Взять все порты свитчей
-                cursor.execute(get_ports)
-                ports_table = cursor.fetchall()
-
-        finally:
-            connection.close()
-
-    except pymysql.err.OperationalError as operror:
-        print('Ошибка соединения с mysql', operror)
-        exit(1)
-
-    return switches_table, ports_table
-
-
-def parse_switch_data(switch_data):
+def parse_switch_data(db_address, user, password, db_name, charset, switch_data):
 
     def __mac_to_hex(mac_address):
         number_letter = {15: 'F', 14: 'E', 13: 'D', 12: 'C', 11: 'B', 10: 'A'}
@@ -254,7 +220,6 @@ def parse_switch_data(switch_data):
                 }
 
         raw_vlan = switch['raw vlan list']
-
         for vlan_string in raw_vlan:
             vid, hosts_amount = vlan_string.split(' = ')
             vid = vid.split('SNMPv2-SMI::mib-2.17.7.1.2.1.1.2.')[1]
@@ -263,7 +228,6 @@ def parse_switch_data(switch_data):
             }
 
         raw_arp = switch['raw arp']
-
         for arp_string in raw_arp:
             host_ip, host_mac = arp_string.split(' = ')
             host_ip = re.findall('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', host_ip)[0]
@@ -275,7 +239,6 @@ def parse_switch_data(switch_data):
                 }
 
         raw_fdb = switch['raw fdb']
-
         for fdb_string in raw_fdb:
             mac, port = fdb_string.split(' = ')
             # Оптимизировать! Использовать либо одну регулярку либо еще че придумать
@@ -315,11 +278,65 @@ def parse_switch_data(switch_data):
 
         switches.append(switch_info)
 
-    switches_table, ports_table = get_switch_table_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'])
     switches_no_id =[]
+    ports_table = []
 
+    # Подключиться к базе данных.
     # Добавляю актуальную информацию по свитчам и портам из БД
-    # switch_id & ip_ports
+    # switch_id, ip_ports и значение последнего id_requests для каждого из свитчей
+    try:
+        connection = pymysql.connect(host=db_address, user=user, password=password,
+                                     db=db_name, charset=charset, cursorclass=pymysql.cursors.DictCursor)
+
+        # SQL - запросы
+        get_switches = "SELECT * FROM switches"
+        get_ports = "SELECT * FROM ports"
+
+        try:
+            with connection.cursor() as cursor:
+                # 1. Взять всю таблицу свитчей
+                cursor.execute(get_switches)
+                switches_table = cursor.fetchall()
+
+                # 2. Взять все порты свитчей
+                cursor.execute(get_ports)
+                ports_table = cursor.fetchall()
+
+                # 3. Получить последний id_requests для свитча
+                for switch in switches:
+
+                    switch_ip = switch['ip address']
+
+                    for switch_tb in switches_table:  # Получаю id switch для каждого свитча
+                        if switch_tb['ip'] == switch_ip:
+                            id_switches = switch_tb['id_switches']
+                            switch['switch id'] = id_switches  # Добавляю id свитча в словарь свитча
+                            break
+
+                    if switch['switch id']:
+                        get_max_id_requests = " SELECT max(id_requests), id_switches FROM statistics_switch where id_switches = '%(id_switches)s'" % {
+                            "id_switches": switch['switch id']}
+
+                    # ВВЕСТИ ПРОВЕРКУ НА ИЗМЕНЕНИЕ IP адреса - т.е. id свитча старый, но ip изменился!
+
+                        cursor.execute(get_max_id_requests)
+                        last_id_request = cursor.fetchone()
+                        switch['last id request'] = last_id_request['max(id_requests)']
+
+                    else:
+                        print('В БД нет такого свитча:', switch_ip)
+                        switches_no_id.append(switch)
+                        continue
+
+        finally:
+            connection.close()
+
+    except pymysql.err.OperationalError as operror:
+        print('Ошибка соединения с mysql', operror)
+        exit(1)
+
+    # Удаляю из списка свитчей - свитч без id_switches
+    switches = [switch for switch in switches if switch not in switches_no_id ]
 
     for switch in switches:
 
@@ -328,20 +345,6 @@ def parse_switch_data(switch_data):
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
         switch_lldp = switch['lldp table']
-
-        for switch_tb in switches_table: # Получаю id switch для каждого свитча
-            if switch_tb['ip'] == switch_ip:
-                id_switches = switch_tb['id_switches']
-                switch['switch id'] = id_switches # Добавляю id свитча в словарь свитча
-                break
-
-        try:
-            switch['switch id']
-
-        except KeyError:
-            print('В БД нет такого свитча:', switch_ip)
-            switches_no_id.append(switch)
-            continue
 
         switch_ports = []  # Выбираю только порты данного свитча из общей солянки
         for port in ports_table:
@@ -377,9 +380,6 @@ def parse_switch_data(switch_data):
         switch['interfaces'] = switch_if
         switch['fdb table'] = switch_fdb
 
-    for switch in switches_no_id: # временный костылёк
-        switches.remove(switch)
-
     return switches
 
 
@@ -387,7 +387,7 @@ def insert_db(db_address, user, password, db_name, charset, switches):
 
     for switch in switches:
 
-        id_request = ''
+        #id_request = ''
 
         request_date = switch['request date']
         switch_ip = switch['ip address']
@@ -503,6 +503,125 @@ def insert_db(db_address, user, password, db_name, charset, switches):
             connection.close()
 
 
+def update_db(db_address, user, password, db_name, charset, switches):
+    for switch in switches:
+
+        request_date = switch['request date']
+        last_id_request = switch['last id request']
+        current_id_request = ''
+        switch_ip = switch['ip address']
+        switch_id = switch['switch id']
+        switch_uptime = switch['switch uptime']
+        switch_descr = switch['switch description']
+        switch_vlans = switch['vlans']
+        switch_if = switch['interfaces']
+        switch_fdb = switch['fdb table']
+        switch_lldp = switch['lldp table']
+
+        print(switch_ip)
+
+        # Добавить новый id_requests в БД
+        try:
+
+            insert_time_request = "INSERT requests(DATE) value('%(request_date)s')" % {"request_date": request_date}
+            get_id_requests = "SELECT max(id_requests) FROM requests"
+
+            connection = pymysql.connect(host=db_address, user=user, password=password, db=db_name,
+                                     charset=charset, cursorclass=pymysql.cursors.DictCursor)
+
+            cursor = connection.cursor()
+            # Записать время опроса свитчей и взять id этого запроса
+            cursor.execute(insert_time_request)
+            connection.commit()
+
+            cursor.execute(get_id_requests)
+            current_id_request = cursor.fetchone()
+            current_id_request = current_id_request['max(id_requests)']
+            connection.close()
+
+            print('новый id_request', current_id_request)
+
+        except pymysql.err.OperationalError as operror:
+            print('Ошибка соединения с mysql', operror)
+            continue
+
+        # Получить последние данные по свитчу
+
+        try:
+            connection = pymysql.connect(host=db_address, user=user, password=password,
+                                         db=db_name, charset=charset, cursorclass=pymysql.cursors.DictCursor)
+
+            get_statistics_switch = """ 
+                SELECT * FROM statistics_switch 
+                    inner join requests using(id_requests) 
+                    where id_switches = '%(switch_id)s' 
+                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+
+            get_statistics_ports = """
+                SELECT * FROM ports 
+                    inner join statistics_ports using(id_ports)
+                    inner join requests using(id_requests) 
+				    WHERE id_switches = '%(switch_id)s'
+                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+
+            get_FDB_tables = """
+            SELECT * FROM ports 
+                    inner join FDB_tables using(id_ports)
+                    inner join requests using(id_requests) 
+				    WHERE id_switches = '%(switch_id)s'
+                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+
+            get_vlan_table = """
+            SELECT * FROM vlan_table 
+                    inner join requests using(id_requests) 
+                    where id_switches = '%(switch_id)s' 
+                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+
+            get_LLDP_table = """
+            SELECT * FROM ports 
+                    inner join LLDP_table using(id_ports)
+                    inner join requests using(id_requests) 
+				    WHERE id_switches = '%(switch_id)s'
+                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+
+            try:
+                with connection.cursor() as cursor:
+
+                    # 1. Взять статистику свитча
+                    cursor.execute(get_statistics_switch)
+                    switch_statistic = cursor.fetchall()
+
+                    # 2. Взять статичтику портов
+                    cursor.execute(get_statistics_ports)
+                    switch_ports_statistic = cursor.fetchall()
+
+                    # 3. Взять FDB таблицу свитча
+                    cursor.execute(get_FDB_tables)
+                    switch_FDB_table = cursor.fetchall()
+
+                    # 4. Взять таблицу vlan
+                    cursor.execute(get_vlan_table)
+                    switch_vlan_tavle = cursor.fetchall()
+
+                    # 5. Взять LLDP таблицу
+                    cursor.execute(get_LLDP_table)
+                    switch_LLDP_table = cursor.fetchall()
+
+                    # 6. Добавить новый id_request - потом использовать его для обновления данных
+
+                    print('статистика свитча',switch_statistic)
+                    print('статичтика портов', switch_ports_statistic)
+                    print('FDB таблица', switch_FDB_table)
+                    print('таблица vlan', switch_vlan_tavle)
+                    print('LLDP таблица', switch_LLDP_table)
+
+            finally:
+                connection.close()
+
+        except pymysql.err.OperationalError as operror:
+            print('Ошибка соединения с mysql', operror)
+            exit(1)
+
 if __name__ == "__main__":
 
     snmp_agent = {
@@ -533,20 +652,21 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], SWITCHES_IZ2, snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], ['10.4.0.1'], snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
-    switches = parse_switch_data(switch_raw)
+    switches = parse_switch_data(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switch_raw)
     end2 = time.time()
 
     start3 = time.time()
-    insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches)
+    update_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches)
+    #insert_db(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switches)
     end3 = time.time()
 
     print('\n',
           'Сбор данных: ', datetime.timedelta(seconds=(int(end1 - start1))), '\n',
-          'Парсинг данных: ', round(int(end2 - start2), 7), 'секунд', '\n',
+          'Парсинг данных: ', round(int(end2 - start2), 12), 'секунд', '\n',
           'Запись в БД:', round(int(end3 - start3), 5), 'секунд','\n',
           'Общее время: ', datetime.timedelta(seconds=(int(end3 - start1))), '\n'
           )
