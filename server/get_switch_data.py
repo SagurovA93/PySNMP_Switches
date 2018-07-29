@@ -860,7 +860,12 @@ def update_db(db_address, user, password, db_name, charset, switches):
         ports_lldp_table_tuples_insert = []
 
         for key in sorted(switch_lldp):
-            id_ports_switch_array.append(switch_lldp[key]['port id'])
+            try:
+                id_ports_switch_array.append(switch_lldp[key]['port id'])
+
+            except KeyError as error_key:
+                print(switch_id, error_key)
+
 
         for element in id_ports_LLDP_table_array:
             if element in id_ports_switch_array:
@@ -868,7 +873,6 @@ def update_db(db_address, user, password, db_name, charset, switches):
             else:
                 ports_lldp_table_insert.append(element)
 
-        lldp_tuples = []
         for port_number in sorted(switch_lldp):
             try:
                 if switch_lldp[port_number]['port id'] in ports_lldp_table_update:
