@@ -302,7 +302,7 @@ def parse_switch_data(db_address, user, password, db_name, charset, switch_data)
                 cursor.execute(get_ports)
                 ports_table = cursor.fetchall()
 
-                # 3. Получить последний id_requests для свитча
+                # 3. Получить последние id_requests для свитча и синхронизировать, если они будут разниться.
                 for switch in switches:
 
                     switch_ip = switch['ip address']
@@ -314,14 +314,16 @@ def parse_switch_data(db_address, user, password, db_name, charset, switch_data)
                             break
 
                     if switch['switch id']:
-                        get_max_id_requests = " SELECT max(id_requests), id_switches FROM statistics_switch where id_switches = '%(id_switches)s'" % {
-                            "id_switches": switch['switch id']}
+                        get_max_id_requests = """ 
+                                            SELECT max(id_requests) FROM statistics_switch 
+                                            where id_switches = '%(id_switches)s'""" % {"id_switches": switch['switch id']}
 
                     # ВВЕСТИ ПРОВЕРКУ НА ИЗМЕНЕНИЕ IP адреса - т.е. id свитча старый, но ip изменился!
 
                         cursor.execute(get_max_id_requests)
                         last_id_request = cursor.fetchone()
                         switch['last id request'] = last_id_request['max(id_requests)']
+                        switch['last id request statistics_ports '] = ''
 
                     else:
                         print('В БД нет такого свитча:', switch_ip)
@@ -508,7 +510,11 @@ def update_db(db_address, user, password, db_name, charset, switches):
 
         request_date = switch['request date']
         last_id_request = switch['last id request']
+        last_id_request_ports = ''
+        last_id_request_FDB = ''
+        last_id_request_LLDP = ''
         current_id_request = ''
+
         switch_ip = switch['ip address']
         switch_id = switch['switch id']
         switch_uptime = switch['switch uptime']
@@ -517,6 +523,12 @@ def update_db(db_address, user, password, db_name, charset, switches):
         switch_if = switch['interfaces']
         switch_fdb = switch['fdb table']
         switch_lldp = switch['lldp table']
+
+        vid_array = []
+        id_ports_switch_array = []
+        id_ports_statistics_array = []
+        id_ports_FDB_tables_array = []
+        id_ports_LLDP_table_array = []
 
         print(switch_ip)
 
@@ -530,10 +542,11 @@ def update_db(db_address, user, password, db_name, charset, switches):
                                      charset=charset, cursorclass=pymysql.cursors.DictCursor)
 
             cursor = connection.cursor()
-            # Записать время опроса свитчей и взять id этого запроса
+            # Записать время опроса свитча
             cursor.execute(insert_time_request)
             connection.commit()
 
+            # Взять id этого запроса
             cursor.execute(get_id_requests)
             current_id_request = cursor.fetchone()
             current_id_request = current_id_request['max(id_requests)']
@@ -546,74 +559,109 @@ def update_db(db_address, user, password, db_name, charset, switches):
             continue
 
         # Получить последние данные по свитчу
-
         try:
             connection = pymysql.connect(host=db_address, user=user, password=password,
                                          db=db_name, charset=charset, cursorclass=pymysql.cursors.DictCursor)
 
             get_statistics_switch = """ 
-                SELECT * FROM statistics_switch 
-                    inner join requests using(id_requests) 
-                    where id_switches = '%(switch_id)s' 
-                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+                    SELECT * FROM statistics_switch 
+                        inner join requests using(id_requests) 
+                        where id_switches = '%(switch_id)s' 
+                        and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id,
+                                                                       "last_id_request": last_id_request}
 
             get_statistics_ports = """
-                SELECT * FROM ports 
-                    inner join statistics_ports using(id_ports)
-                    inner join requests using(id_requests) 
-				    WHERE id_switches = '%(switch_id)s'
-                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+                    SELECT id_requests, id_ports FROM ports 
+                        inner join statistics_ports using(id_ports)
+                        inner join requests using(id_requests) 
+                        WHERE id_switches = '%(switch_id)s'
+                        and id_requests = (SELECT max(id_requests) 
+                            FROM (
+                                SELECT * FROM ports inner join 
+                                statistics_ports using(id_ports)
+                                inner join requests using(id_requests) 
+						        WHERE id_switches = '%(switch_id)s'
+                                ) as tmp
+                        );""" % {"switch_id": switch_id}
 
-            get_FDB_tables = """
-            SELECT * FROM ports 
-                    inner join FDB_tables using(id_ports)
-                    inner join requests using(id_requests) 
-				    WHERE id_switches = '%(switch_id)s'
-                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+            get_FDB_tables = """           
+                    SELECT id_requests, id_ports FROM 
+                    ports inner join 
+                    FDB_tables using(id_ports) inner join 
+                    requests using(id_requests) 
+                    WHERE id_switches = '%(switch_id)s' 
+                    and id_requests = (select max(id_requests) from (
+                        SELECT * FROM 
+                        ports inner join 
+                        FDB_tables using(id_ports) inner join 
+                        requests using(id_requests) 
+                        WHERE id_switches = '%(switch_id)s' 
+                        ) as tmp 
+                    );""" % {"switch_id": switch_id}
 
             get_vlan_table = """
-            SELECT * FROM vlan_table 
-                    inner join requests using(id_requests) 
-                    where id_switches = '%(switch_id)s' 
-                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
+                    SELECT VID FROM vlan_table 
+                        inner join requests using(id_requests) 
+                        where id_switches = '%(switch_id)s' 
+                        and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id,
+                                                                       "last_id_request": last_id_request}
 
             get_LLDP_table = """
-            SELECT * FROM ports 
-                    inner join LLDP_table using(id_ports)
-                    inner join requests using(id_requests) 
-				    WHERE id_switches = '%(switch_id)s'
-                    and id_requests = '%(last_id_request)s' """ % {"switch_id": switch_id, "last_id_request": last_id_request}
-
+                    SELECT id_requests, id_ports FROM ports 
+                        inner join LLDP_table using(id_ports)
+                        inner join requests using(id_requests) 
+                        WHERE id_switches = '%(switch_id)s'
+                        and id_requests = (SELECT max(id_requests) 
+                            FROM (
+                                SELECT * FROM 
+                                ports inner join 
+                                LLDP_table using(id_ports)
+                                inner join requests using(id_requests) 
+						        WHERE id_switches = '%(switch_id)s'
+                                ) as tmp
+                            );""" % {"switch_id": switch_id}
             try:
                 with connection.cursor() as cursor:
 
                     # 1. Взять статистику свитча
-                    cursor.execute(get_statistics_switch)
-                    switch_statistic = cursor.fetchall()
+                    #cursor.execute(get_statistics_switch)
+                    #statistics_ports = cursor.fetchall()
 
-                    # 2. Взять статичтику портов
+                    # 1. Взять статичтику портов
                     cursor.execute(get_statistics_ports)
-                    switch_ports_statistic = cursor.fetchall()
+                    id_ports_ports_statistic = cursor.fetchall()
 
-                    # 3. Взять FDB таблицу свитча
+                    # 2. Взять FDB таблицу свитча
                     cursor.execute(get_FDB_tables)
-                    switch_FDB_table = cursor.fetchall()
+                    id_ports_FDB_tables = cursor.fetchall()
 
-                    # 4. Взять таблицу vlan
+                    # 3. Взять таблицу vlan
                     cursor.execute(get_vlan_table)
-                    switch_vlan_tavle = cursor.fetchall()
+                    vid_vlan_table = cursor.fetchall()
 
-                    # 5. Взять LLDP таблицу
+                    # 4. Взять LLDP таблицу
                     cursor.execute(get_LLDP_table)
-                    switch_LLDP_table = cursor.fetchall()
+                    id_ports_LLDP_table = cursor.fetchall()
 
-                    # 6. Добавить новый id_request - потом использовать его для обновления данных
+                    for element in vid_vlan_table:
+                        vid_array.append(int(element['VID']))
 
-                    print('статистика свитча',switch_statistic)
-                    print('статичтика портов', switch_ports_statistic)
-                    print('FDB таблица', switch_FDB_table)
-                    print('таблица vlan', switch_vlan_tavle)
-                    print('LLDP таблица', switch_LLDP_table)
+                    for element in id_ports_ports_statistic:
+                        last_id_request_ports = element['id_requests']
+                        id_ports_statistics_array.append(int(element['id_ports']))
+
+                    for element in id_ports_FDB_tables:
+                        last_id_request_FDB = element['id_requests']
+                        id_ports_FDB_tables_array.append(int(element['id_ports']))
+
+                    for element in id_ports_LLDP_table:
+                        last_id_request_LLDP = element['id_requests']
+                        id_ports_LLDP_table_array.append(int(element['id_ports']))
+
+                    print('last id request', last_id_request, 'таблица vlan', vid_vlan_table)
+                    print('last_id_request_ports', last_id_request_ports, 'статиcтика портов', id_ports_statistics_array)
+                    print('last_id_request_FDB', last_id_request_FDB, 'FDB таблица', id_ports_FDB_tables_array)
+                    print('last_id_request_LLDP', last_id_request_LLDP, 'LLDP таблица', id_ports_LLDP_table_array)
 
             finally:
                 connection.close()
@@ -621,6 +669,294 @@ def update_db(db_address, user, password, db_name, charset, switches):
         except pymysql.err.OperationalError as operror:
             print('Ошибка соединения с mysql', operror)
             exit(1)
+
+        # Разобрать данные на кортежи
+        vlan_update = []
+        vlan_insert = []
+        vlan_tuples_update = []
+        vlan_tuples_insert = []
+
+        # Отбираю элементы VID, которые нужно будет обновить, а не вставить
+        for element in vid_array:
+            if element in sorted(switch_vlans):
+                vlan_update.append(element)
+            else:
+                vlan_insert.append(element)
+
+        for vlan in sorted(switch_vlans):
+            if vlan in vlan_update:
+                tupe_vlan_update = (int(switch_vlans[vlan]['host amount']), current_id_request, switch_id, last_id_request, vlan)
+                #print(tupe_vlan_update)
+                vlan_tuples_update.append(tupe_vlan_update)
+            else:
+                tupe_vlan_insert = (vlan, int(switch_vlans[vlan]['host amount']), switch_id, current_id_request)
+                vlan_tuples_insert.append(tupe_vlan_insert)
+
+        update_vlan_table = """ 
+            UPDATE vlan_table SET 
+                host_amount = %s, id_requests = %s
+                WHERE id_switches = %s
+                AND id_requests = %s
+                AND VID = %s;
+                """
+
+        insert_vlan_table = """ 
+            INSERT vlan_table(VID, host_amount, id_switches, id_requests ) 
+                values(%s, %s, %s, %s) """
+
+        # Отбираю элементы id_ports для таблицы statistics_ports
+        ports_statistic_update = []
+        ports_statistic_insert = []
+        ports_statistic_tuples_update = []
+        ports_statistic_tuples_insert = []
+
+        for key in sorted(switch_if):
+            id_ports_switch_array.append(switch_if[key]['port id'])
+
+        for element in id_ports_statistics_array:
+            if element in id_ports_switch_array:
+                ports_statistic_update.append(element)
+            else:
+                ports_statistic_insert.append(element)
+
+        for interface in sorted(switch_if):
+            if interface in ports_statistic_update:
+                try:
+
+                    tuple_ports_statistics_update = (
+                                             switch_if[interface]['interface description'],
+                                             switch_if[interface]['interface speed'],
+                                             switch_if[interface]['interface mac'],
+                                             switch_if[interface]['interface status'],
+                                             switch_if[interface]['interface uptime'],
+                                             switch_if[interface]['interface in Bytes'],
+                                             switch_if[interface]['interface out Bytes'],
+                                             current_id_request,
+                                             switch_if[interface]['port id'],
+                                             last_id_request_ports)
+
+                    ports_statistic_tuples_update.append(tuple_ports_statistics_update)
+
+                except KeyError:
+                    print('У свитча есть interface, которого нет в нашей БД', '\n',
+                          interface, '\n',
+                          switch_if[interface]
+                          )
+                    continue
+
+            else:
+
+                try:
+
+                    tuple_ports_statistics_insert = (switch_if[interface]['port id'], switch_if[interface]['interface description'],
+                            switch_if[interface]['interface speed'], switch_if[interface]['interface mac'],
+                            switch_if[interface]['interface status'], switch_if[interface]['interface uptime'],
+                            switch_if[interface]['interface in Bytes'], switch_if[interface]['interface out Bytes'],
+                            current_id_request)
+
+                    ports_statistic_tuples_insert.append(tuple_ports_statistics_insert)
+
+                except KeyError:
+                    print('У свитча есть interface, которого нет в нашей БД', '\n',
+                          interface, '\n',
+                          switch_if[interface]
+                          )
+                    continue
+
+        update_statistics_ports = """ 
+                            UPDATE statistics_ports SET
+                                port_description = %s, 
+                                port_speed = %s, 
+                                port_mac = %s, 
+                                port_status = %s, 
+                                port_uptime = %s, 
+                                port_in_octets = %s, 
+                                port_out_octets = %s, 
+                                id_requests = %s
+                                WHERE id_ports = %s
+                                AND id_requests = %s;
+                                """
+        insert_statistics_ports = """ 
+                                INSERT statistics_ports(id_ports, 
+                                                        port_description, 
+                                                        port_speed, port_mac, 
+                                                        port_status, 
+                                                        port_uptime, 
+                                                        port_in_octets, 
+                                                        port_out_octets, 
+                                                        id_requests) 
+                                values(%s, %s, %s, %s, %s, %s, %s, %s, %s) """
+
+        ports_fdb_tables_update = []
+        ports_fdb_tables_insert = []
+        ports_fdb_tables_tuples_update = []
+        ports_fdb_tables_tuples_insert = []
+        id_ports_switch_array = []
+
+        for key in sorted(switch_fdb):
+            try:
+                id_ports_switch_array.append(switch_fdb[key]['port id'])
+
+            except KeyError:
+                continue
+
+        for element in sorted(id_ports_FDB_tables_array):
+            if element in id_ports_switch_array:
+                ports_fdb_tables_update.append(element)
+            else:
+                ports_fdb_tables_insert.append(element)
+
+        for port in sorted(switch_fdb):
+            try:
+                id_ports = switch_fdb[port]['port id']
+                if id_ports in ports_fdb_tables_update:
+                    hosts = switch_fdb[port]['hosts']
+                    for host in hosts:
+                        ports_fdb_tables_tuples_update.append(
+                            (current_id_request,
+                             id_ports,
+                             host[0],
+                             host[1],
+                             host[2],
+                             id_ports,
+                             last_id_request_FDB))
+                else:
+                    hosts = switch_fdb[port]['hosts']
+                    for host in hosts:
+                        ports_fdb_tables_tuples_insert.append(
+                            (current_id_request,
+                             id_ports,
+                             host[0],
+                             host[1],
+                             host[2])
+                        )
+            except KeyError:
+                print('Нет id port: ', port, switch_fdb[port])
+
+        update_fdb_tables = """
+                UPDATE FDB_tables SET
+                    id_requests = %s,
+                    id_ports = %s,
+                    mac_address = %s,
+                    VID = %s,
+                    ip_address = %s
+                    WHERE id_ports = %s
+                    AND id_requests = %s; 
+                """
+
+        insert_fdb_tables = """ 
+                INSERT FDB_tables(
+                    id_requests, 
+                    id_ports, 
+                    mac_address, 
+                    VID, 
+                    ip_address) 
+                    values(%s, %s, %s, %s, %s)"""
+
+        id_ports_switch_array = []
+        ports_lldp_table_update = []
+        ports_lldp_table_insert = []
+        ports_lldp_table_tuples_update = []
+        ports_lldp_table_tuples_insert = []
+
+        for key in sorted(switch_lldp):
+            id_ports_switch_array.append(switch_lldp[key]['port id'])
+
+        for element in id_ports_LLDP_table_array:
+            if element in id_ports_switch_array:
+                ports_lldp_table_update.append(element)
+            else:
+                ports_lldp_table_insert.append(element)
+
+        lldp_tuples = []
+        for port_number in sorted(switch_lldp):
+            try:
+                if switch_lldp[port_number]['port id'] in ports_lldp_table_update:
+                    ports_lldp_table_tuples_update.append(
+                        (switch_lldp[port_number]['port id'],
+                         switch_lldp[port_number]['neighbor mac'],
+                         switch_lldp[port_number]['neighbor port'],
+                         current_id_request,
+                         switch_lldp[port_number]['port id'],
+                         last_id_request_LLDP)
+                    )
+
+                else:
+                    ports_lldp_table_tuples_insert.append(
+                        (switch_lldp[port_number]['port id'],
+                         switch_lldp[port_number]['neighbor mac'],
+                         switch_lldp[port_number]['neighbor port'],
+                         current_id_request)
+                    )
+
+            except KeyError as error_key:
+                print(switch_id, error_key)
+
+        # LLDP table
+
+        update_lldp_table = """
+                UPDATE LLDP_table SET
+                    id_ports = %s, 
+                    neighbor_mac = %s, 
+                    neighbor_port = %s, 
+                    id_requests = %s
+                    WHERE id_ports = %s
+                    AND id_requests = %s
+                """
+
+        insert_lldp_table = """ 
+                INSERT LLDP_table(
+                    id_ports, 
+                    neighbor_mac, 
+                    neighbor_port, 
+                    id_requests) values(%s, %s, %s, %s)"""
+
+        # Записать обновленные значения
+        try:
+            connection = pymysql.connect(host=db_address, user=user, password=password,
+                                         db=db_name, charset=charset, cursorclass=pymysql.cursors.DictCursor)
+
+            # statistics_switch
+            update_statistics_switch = """ 
+                                UPDATE statistics_switch SET 
+                                    id_requests = '%(id_requests)s',
+                                    switch_description = '%(switch_description)s',
+                                    switch_uptime = '%(switch_uptime)s'
+                                    WHERE id_switches = '%(id_switches)s'
+                                    AND id_requests = '%(last_id_request)s'
+                                    """ \
+                                       % {"id_switches": switch_id, "id_requests": current_id_request,
+                                          "last_id_request": last_id_request,"switch_description": switch_descr,
+                                          "switch_uptime": switch_uptime}
+
+            cursor = connection.cursor()
+            cursor.execute(update_statistics_switch)
+            cursor.executemany(update_vlan_table, vlan_tuples_update)
+            if len(vlan_tuples_insert) != 0:
+                cursor.executemany(insert_vlan_table, vlan_tuples_insert)
+
+            cursor.executemany(update_statistics_ports, ports_statistic_tuples_update)
+            print('Обновление, статистика портов', ports_statistic_update)
+            if len(ports_statistic_insert) != 0:
+                print('Вставка, статистика портов', ports_statistic_insert)
+                cursor.executemany(insert_statistics_ports, ports_statistic_tuples_insert)
+
+            cursor.executemany(update_fdb_tables, ports_fdb_tables_tuples_update)
+            print('Обновление, FDB таблица', ports_fdb_tables_update)
+            if len(ports_fdb_tables_insert) != 0:
+                print('Вставка, FDB таблица', ports_fdb_tables_insert)
+                cursor.executemany(insert_fdb_tables, ports_fdb_tables_tuples_insert)
+
+            cursor.executemany(update_lldp_table, ports_lldp_table_tuples_update)
+            print('Обновление, LLDP таблица', ports_lldp_table_update)
+            if len(ports_lldp_table_insert) != 0:
+                cursor.executemany(insert_lldp_table, ports_lldp_table_tuples_insert)
+                print('Вставка, LLDP таблица', ports_lldp_table_insert)
+
+        finally:
+            connection.commit()  # Записать изменения в БД
+            connection.close()
+
 
 if __name__ == "__main__":
 
@@ -639,24 +975,27 @@ if __name__ == "__main__":
 
     SWITCH_WORKSHOP = ['10.4.0.200', '10.4.0.201', '10.4.0.202', '10.4.0.203',
                        '10.4.0.204', '10.4.0.205', '10.4.0.206', '10.4.0.207', '10.4.0.208',
-                       '10.4.0.209', '10.4.0.210', '10.4.0.211', '10.4.0.212', '10.4.0.213',
-                       '10.4.0.214', '10.4.0.215', '10.4.0.217', '10.4.0.218']
+                       '10.4.0.209', '10.4.0.210', '10.4.0.211', '10.4.0.212',
+                       '10.4.0.213', '10.4.0.214', '10.4.0.215', '10.4.0.217', '10.4.0.218']
 
     SWITCH_ABK = ['10.4.0.1', '10.4.100.12', '10.4.100.13', '10.4.100.111',
                   '10.4.100.121', '10.4.100.131', '10.4.100.171', '10.4.100.211',
-                  '10.4.100.212', '10.4.100.213', '10.4.100.214', '10.4.100.215',
-                  '10.4.100.216', '10.4.100.231', '10.4.100.251']
+                  '10.4.100.212', '10.4.100.213', '10.4.100.215', '10.4.100.216',
+                  '10.4.100.231', '10.4.100.251']
 
     N16_SWITCHES = ['10.1.13.249', '10.1.13.252']
 
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = get_switch_data(snmp_agent['community'], ['10.4.0.1'], snmp_agent['port'])
+    switch_raw = get_switch_data(snmp_agent['community'], SWITCHES_IZ2, snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
     switches = parse_switch_data(cred['host'], cred['user'], cred['passwd'], cred['db'], cred['charset'], switch_raw)
+    #for switch in switches:
+    #    for key in sorted(switch['lldp table']):
+    #        print(key, switch['lldp table'][key])
     end2 = time.time()
 
     start3 = time.time()
