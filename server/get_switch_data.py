@@ -168,6 +168,7 @@ def get_actual_db_data(db_address, user, password, db_name, charset, switches):
 
                 # Беру из БД нужные данные для добавления в словари
 
+                # SQL запросы общие
                 get_id_rqst_if_stat = """
                                     SELECT id_requests FROM ports 
                                         inner join statistics_ports using(id_ports)
@@ -226,12 +227,19 @@ def get_actual_db_data(db_address, user, password, db_name, charset, switches):
 
                 get_id_requests = "SELECT max(id_requests) FROM requests"
 
+
                 cursor.execute(get_id_rqst_if_stat)
                 max_id_rqst_if_stat = cursor.fetchone()
 
                 cursor.execute(get_fdb_table)  # Здесь беруотся данные самой актуальной FDB таблицы по текущему свитчу
                 last_fdb_table = cursor.fetchall()
-                max_id_rqst_fdb = last_fdb_table[0]['id_requests']  # Получаю последний id_requests для FDB таблицы
+                try:
+                    max_id_rqst_fdb = last_fdb_table[0]['id_requests']  # Получаю последний id_requests для FDB таблицы
+
+                except:
+                    print('\n', 'FDB таблица в базе данных пуста! свитч: ', switch_ip, '\n')
+                    switches_no_id.append(switch)
+                    continue
 
                 last_fdb_table_mac_full = {}  # Массив для хранения мак адресов из послденей (
                 # из БД) FDB таблицы и соответствия портов и запроса
@@ -276,18 +284,19 @@ def get_actual_db_data(db_address, user, password, db_name, charset, switches):
                 switch['id switch'] = switch_id
 
                 for string in table_sw_ports:
-                    # print('id port:', string['id_ports'], 'port number:', string['port_number'])
 
                     try:
                         switch_if_stat[int(string['port_number'])]['port id'] = string['id_ports']
 
                     except KeyError:
-                        # print('IF-stat: Невозможно добавить port id ', string['id_ports'], 'такого порта нет', string['port_number'])
+                        print('IF-stat: Невозможно добавить port id ', string['id_ports'], 'такого порта нет', string['port_number'])
                         continue
 
+                    # Обработка FDB таблицы (переписать в виде функции место, где проверяется каждый MAC)
                     try:
                         switch_fdb[int(string['port_number'])]['port id'] = string['id_ports']
 
+                        # Разбираю кажый MAC на 2 словаря - update_fdb_mac и insert_fdb_mac
                         try:
                             for host in switch_fdb[int(string['port_number'])]['hosts']:
                                 # print({host[0]: (string['id_ports'], int(string['port_number']))})
@@ -297,38 +306,108 @@ def get_actual_db_data(db_address, user, password, db_name, charset, switches):
                                     old_fdb_mac.append({host[0]: (string['id_ports'], int(string['port_number']))})
 
                                     # id port порта из опроса == # dict из БД { mac_address: (ip_ports, port_number, id_requests)}
-                                    if switch_fdb[int(string['port_number'])]['port id'] == int(last_fdb_table_mac_full[host[0]][0]):
-                                        update_fdb_mac.append({host[0]: (string['id_ports'], int(string['port_number']))})
+                                    if int(switch_fdb[int(string['port_number'])]['port id']) == int(last_fdb_table_mac_full[host[0]][0]):
+
+                                        update_fdb_mac.append(
+                                            {host[0]: {'current id port': int(switch_fdb[int(string['port_number'])]['port id']),
+                                                       'where id port': int(string['id_ports']),
+                                                       'port number': int(string['port_number']),
+                                                       'last id request': max_id_rqst_fdb,
+                                                       'VID': host[1],
+                                                       'ip address': host[2]
+                                                       }
+                                             })
                                         # тут все ок, изменений не было, обновляем id_requests
 
                                     else:
-                                        print(int(last_fdb_table_mac_full[host[0]][0]), '->', int(host[1]))
+
+                                        print(int(last_fdb_table_mac_full[host[0]][0]), '->', int(last_fdb_table_mac_full[host[0]][0]))
                                         mac_port_changed.append({host[0]: (string['id_ports'], int(string['port_number']))})
                                         # тут нужно брать последний id_request по этому мак адресу + port id
                                         # Это все равно будет update
 
+                                        get_actual_info_mac_address = """
+                                            SELECT id_requests, id_ports, port_number FROM
+                                                ports inner join
+                                                FDB_tables using(id_ports) inner join
+                                                requests using(id_requests)
+                                                WHERE id_switches = '%(id_switches)s'
+                                                AND mac_address = '%(mac_address)s'
+                                                AND id_requests = (SELECT max(id_requests) FROM
+                                                    ports inner join
+                                                    FDB_tables using(id_ports) inner join
+                                                    requests using(id_requests)
+                                                    WHERE id_switches = '%(id_switches)s'
+                                                    AND mac_address = '%(mac_address)s'
+                                                    )
+                                        """ % {"id_switches": switch_id, "mac_address": host[0]}
+
+                                        cursor.execute(get_actual_info_mac_address)
+                                        mac_address_info = cursor.fetchone()
+
+                                        update_fdb_mac.append(
+                                            {host[0]: {'current id port': int(switch_fdb[int(string['port_number'])]['port id']),
+                                                       'where id port': int(mac_address_info['id_ports']),
+                                                       'port number': int(mac_address_info['port_number']),
+                                                       'last id request': int(mac_address_info['id_requests']),
+                                                       'VID': host[1],
+                                                       'ip address': host[2]}
+                                             })
+
                                 else:
+
                                     new_fdb_mac.append({host[0]: (string['id_ports'], int(string['port_number']))})
                                     # тут нужно взять последний id_request по этому мак адресу + port id
-                                    # если ничего не вернулост из базы, то INSERT, если вернулось, то UPDATE
+                                    # если ничего не вернулось из базы, то INSERT, если вернулось, то UPDATE
+
+                                    get_actual_info_mac_address = """
+                                                                                SELECT id_requests, id_ports, port_number FROM
+                                                                                    ports inner join
+                                                                                    FDB_tables using(id_ports) 
+                                                                                    inner join requests using(id_requests)
+                                                                                    WHERE id_switches = '%(id_switches)s'
+                                                                                    AND mac_address = '%(mac_address)s'
+                                                                                    AND id_requests = (SELECT max(id_requests) FROM
+                                                                                        ports inner join
+                                                                                        FDB_tables using(id_ports) inner join
+                                                                                        requests using(id_requests)
+                                                                                        WHERE id_switches = '%(id_switches)s'
+                                                                                        AND mac_address = '%(mac_address)s'
+                                                                                        )
+                                                                            """ % {"id_switches": switch_id,
+                                                                                   "mac_address": host[0]}
+
+                                    cursor.execute(get_actual_info_mac_address)
+                                    mac_address_info = cursor.fetchone()
+
+                                    try:
+
+                                        update_fdb_mac.append(
+                                            {host[0]: {'current id port': int(switch_fdb[int(string['port_number'])]['port id']),
+                                                       'where id port': int(mac_address_info['id_ports']),
+                                                       'port number': int(mac_address_info['port_number']),
+                                                       'last id request': int(mac_address_info['id_requests']),
+                                                       'VID': host[1],
+                                                       'ip address': host[2]}
+                                             })
+
+                                    except TypeError:
+
+                                        insert_fdb_mac.append(
+                                            {host[0]: {
+                                                'id port': int(switch_fdb[int(string['port_number'])]['port id']),
+                                                'port number': int(string['port_number']),
+                                                'current id request': int(current_id_request['max(id_requests)']),
+                                                'VID': host[1],
+                                                'ip address': host[2]
+                                            }}
+                                        )
 
                                 current_fdb_table_mac.append({host[0]: (host[1], int(string['port_number']))})
 
                         except KeyError as keyerror:
                             print('Ой! Ошибка, нет ключа в словаре: ', keyerror)
                             continue
-
-                            """
-                            # Временный массив для switch_fdb['hosts']
-                            # - туда будут добавлены id_port для каждой записи MAC адреса
-                            fdb_hosts_temp = []
-    
-                            # Для каждого мак адреса в FDB таблицы добавляю 'port id'
-                            for host in switch_fdb[int(string['port_number'])]['hosts']:
-                                fdb_hosts_temp.append((int(string['id_ports']), host[0], host[1], host[2]))
-    
-                            switch_fdb[int(string['port_number'])]['hosts'] = fdb_hosts_temp
-                            """
 
                     except KeyError:
                         """
@@ -346,6 +425,9 @@ def get_actual_db_data(db_address, user, password, db_name, charset, switches):
                               string['port_number'])
                         """
                         continue
+
+                switch['update fdb table'] = update_fdb_mac
+                switch['insert fdb table'] = insert_fdb_mac
 
                 print('Количество MAC адресов FDB в опросе: ', len(current_fdb_table_mac))
                 print('Новых mac адресов: ', len(new_fdb_mac), ' ', 'Старых mac адресов: ', len(old_fdb_mac),)
@@ -372,7 +454,12 @@ def get_actual_db_data(db_address, user, password, db_name, charset, switches):
         connection.close()
 
     # Удаляю из списка свитчей - свитч без id_switches
-    switches = [switch for switch in switches if switch not in switches_no_id]
+    for switch_rm in switches_no_id:
+        for switch in switches:
+            if switch_rm['ip address'] == switch['ip address']:
+                print('Информация свитча', switch_rm['ip address'], 'не будет записана в базу данных из-за произошедших ошибок')
+                switches.remove(switch)
+    #switches = [switch for switch in switches if switch not in switches_no_id]
 
     return switches
 
@@ -674,7 +761,8 @@ def insert_db(db_address, user, password, db_name, charset, switches):
 
 
 def update_db(db_address, user, password, db_name, charset, switches):
-    switches_tuples = []  # Общий для всех свитчей списко подготовленных кортежей для записи
+
+    switches_tuples = []  # Общий для всех свитчей список подготовленных кортежей для записи
 
     for switch in switches:
 
@@ -728,7 +816,9 @@ def update_db(db_address, user, password, db_name, charset, switches):
                                           ))
 
         tuples_sw_fdb_update = []
-        sw_fdb_last_id_rqst = switch_fdb.pop('last id request')
+        tuples_sw_fdb_insert = []
+        switch_fdb.pop('last id request')
+
         for port in sorted(switch_fdb):
 
             try:
@@ -736,15 +826,34 @@ def update_db(db_address, user, password, db_name, charset, switches):
             except KeyError:
                 continue
 
-            for host in switch_fdb[port]['hosts']:
-                tuples_sw_fdb_update.append((current_id_request,
-                                             host[0],  # mac address
-                                             host[1],  # Vlan id
-                                             host[2],  # ip address
-                                             port_id,
-                                             sw_fdb_last_id_rqst,
-                                             host[0]
-                                             ))
+        for string in switch['update fdb table']:
+            for element in string.items():
+               mac_address = element[0]
+               mac_dict = element[1]
+               tuples_sw_fdb_update.append(
+                   (mac_dict['current id port'],
+                    current_id_request,
+                    mac_address,
+                    mac_dict['VID'],
+                    mac_dict['ip address'],
+                    mac_dict['where id port'],
+                    mac_dict['last id request'],
+                    mac_address
+                    )
+               )
+
+        for string in switch['insert fdb table']:
+            for element in string.items():
+                mac_address = element[0]
+                mac_dict = element[1]
+                tuples_sw_fdb_insert.append(
+                   (current_id_request,
+                    mac_dict['id port'],
+                    mac_address,
+                    mac_dict['VID'],
+                    mac_dict['ip address']
+                    )
+                )
 
         update_statistics_sw = """
             UPDATE statistics_switch SET
@@ -794,6 +903,7 @@ def update_db(db_address, user, password, db_name, charset, switches):
 
         update_FDB_tables = """
                     UPDATE FDB_tables SET
+                        id_ports = %s,
                         id_requests = %s,
                         mac_address = %s,
                         VID = %s,
@@ -803,6 +913,11 @@ def update_db(db_address, user, password, db_name, charset, switches):
                         AND mac_address = %s
                 """
 
+        insert_fdb_tables = """ 
+                            INSERT FDB_tables
+                                (id_requests, id_ports, mac_address, VID, ip_address) 
+                                values(%s, %s, %s, %s, %s)"""
+
         switches_tuples.append(
             {
                 'ip switch': ip_switch,
@@ -811,7 +926,8 @@ def update_db(db_address, user, password, db_name, charset, switches):
                     [(update_vlan_table, tuples_sw_vlan_update),
                      (update_statistics_ports, tuples_if_stat_update),
                      (update_LLDP_table, tuples_sw_lldp_update),
-                     (update_FDB_tables, tuples_sw_fdb_update)]
+                     (update_FDB_tables, tuples_sw_fdb_update),
+                     (insert_fdb_tables, tuples_sw_fdb_insert)]
             })
 
     connection = pymysql.connect(host=db_address, user=user, password=password, db=db_name,
@@ -867,7 +983,7 @@ if __name__ == "__main__":
     SWITCHES_IZ2 = SWITCH_WORKSHOP + SWITCH_ABK
 
     start1 = time.time()
-    switch_raw = snmp_switch(snmp_agent['community'], ['10.4.0.201'], snmp_agent['port'])
+    switch_raw = snmp_switch(snmp_agent['community'], ['10.4.100.101'], snmp_agent['port'])
     end1 = time.time()
 
     start2 = time.time()
